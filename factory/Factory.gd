@@ -11,6 +11,7 @@ const DIRECTIONS := [Vector2i.RIGHT, Vector2i.DOWN, Vector2i.LEFT, Vector2i.UP]
 const GRID_COLUMNS := 40
 const GRID_ROWS := 22
 const DEPO_START_SCRAP := 1000
+const BELT_FRAMES_PER_SECOND := 8.0
 
 enum CellKind { BELT, MACHINE }
 enum Tool { BELT, FORGE, BANK }
@@ -46,17 +47,31 @@ var selected_tool := Tool.BELT
 var placement_direction := 0   # facing used when you place something
 var hovered_coordinate := Vector2i.ZERO
 
+var belt_frames: Array[Texture2D] = []
+var belt_animation_time := 0.0
+
 # while dragging belts, each one links to the last so corners form on their own
 var has_chain_anchor := false
 var chain_anchor := Vector2i.ZERO
 
 func _ready() -> void:
+	_load_belt_frames()
 	var depo := _new_machine_cell(&"depo")
 	depo.machine.stored = DEPO_START_SCRAP
 	cells[depo_coordinate] = depo
 
+func _load_belt_frames() -> void:
+	var index := 1
+	while true:
+		var path := "res://sprites/belts/scrap_belt_straight/Straight Belt %d.png" % index
+		if not ResourceLoader.exists(path):
+			break
+		belt_frames.append(load(path))
+		index += 1
+
 func _process(delta: float) -> void:
 	var scaled_delta := delta * Sim.speed
+	belt_animation_time += scaled_delta
 	_advance_items(scaled_delta)
 	_tick_machines(scaled_delta)
 	hovered_coordinate = _world_to_cell(get_global_mouse_position())
@@ -386,6 +401,10 @@ func _draw_grid() -> void:
 
 func _draw_belt(coordinate: Vector2i, input_direction: int, output_direction: int, alpha := 1.0) -> void:
 	var rect := _cell_rect(coordinate)
+	var is_straight := input_direction == _opposite_direction(output_direction)
+	if is_straight and not belt_frames.is_empty():
+		_draw_belt_frame(rect, output_direction, alpha)
+		return
 	draw_rect(rect, Color(0.16, 0.16, 0.18, alpha))
 	draw_rect(rect, Color(0, 0, 0, 0.4 * alpha), false, 1.0)
 	var center := rect.position + rect.size * 0.5
@@ -400,6 +419,14 @@ func _draw_belt(coordinate: Vector2i, input_direction: int, output_direction: in
 	var perpendicular := Vector2(-output_vector.y, output_vector.x)
 	draw_line(head, head - output_vector * 5.0 + perpendicular * 4.0, arrow_color, 2.0)
 	draw_line(head, head - output_vector * 5.0 - perpendicular * 4.0, arrow_color, 2.0)
+
+func _draw_belt_frame(rect: Rect2, output_direction: int, alpha: float) -> void:
+	var frame := int(belt_animation_time * BELT_FRAMES_PER_SECOND) % belt_frames.size()
+	var center := rect.position + rect.size * 0.5
+	# the art scrolls up by default, so add a quarter turn to line it up with the output direction
+	draw_set_transform(center, (output_direction + 1) * PI * 0.5, Vector2.ONE)
+	draw_texture_rect(belt_frames[frame], Rect2(-rect.size * 0.5, rect.size), false, Color(1, 1, 1, alpha))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_machine(coordinate: Vector2i, cell: Cell) -> void:
 	var definition := cell.machine.definition
