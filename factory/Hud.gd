@@ -90,16 +90,17 @@ func _build_launch_button() -> void:
 	launch_button = Button.new()
 	launch_button.anchor_left = 1.0
 	launch_button.anchor_right = 1.0
-	launch_button.custom_minimum_size = Vector2(96, 96)
-	launch_button.offset_left = -108
+	launch_button.custom_minimum_size = Vector2(128, 128)
+	launch_button.offset_left = -140
 	launch_button.offset_right = -12
-	launch_button.offset_top = 44
-	launch_button.offset_bottom = 140
+	launch_button.offset_top = 8
+	launch_button.offset_bottom = 136
 	launch_button.text = "PRIME"
-	launch_button.add_theme_font_size_override("font_size", 18)
-	launch_button.add_theme_stylebox_override("normal", _icon_style(Color(0.45, 0.18, 0.18)))
-	launch_button.add_theme_stylebox_override("hover", _icon_style(Color(0.55, 0.22, 0.22)))
-	launch_button.add_theme_stylebox_override("pressed", _icon_style(Color(0.65, 0.28, 0.28)))
+	launch_button.add_theme_font_size_override("font_size", 24)
+	launch_button.add_theme_stylebox_override("normal", _icon_style(Color(0.72, 0.16, 0.16)))
+	launch_button.add_theme_stylebox_override("hover", _icon_style(Color(0.82, 0.22, 0.22)))
+	launch_button.add_theme_stylebox_override("pressed", _icon_style(Color(0.90, 0.30, 0.30)))
+	launch_button.add_theme_stylebox_override("disabled", _icon_style(Color(0.40, 0.13, 0.13)))
 	launch_button.pressed.connect(_on_launch_pressed)
 	add_child(launch_button)
 
@@ -173,16 +174,11 @@ func _refresh_robots() -> void:
 
 func _refresh_launch() -> void:
 	var has_robots: bool = not factory.robot_groups().is_empty()
-	launch_button.disabled = not has_robots and not factory.launch_armed
-	if factory.launch_armed:
-		launch_button.text = "LAUNCH"
-		launch_button.modulate = Color(1.3, 0.8, 0.8)
-	elif not has_robots:
-		launch_button.text = "PRIME"
-		launch_button.modulate = Color(0.5, 0.5, 0.5)
-	else:
-		launch_button.text = "PRIME"
-		launch_button.modulate = Color(1, 1, 1)
+	if factory.launch_armed and not has_robots:
+		factory.disarm_launch()       # the shuttle emptied out, so drop back to unprimed
+	launch_button.disabled = not has_robots
+	launch_button.text = "LAUNCH" if factory.launch_armed else "PRIME"
+	launch_button.modulate = Color(1.2, 1.0, 1.0) if factory.launch_armed else Color(1, 1, 1)
 
 func _refresh_speed() -> void:
 	for speed in speed_buttons:
@@ -191,12 +187,10 @@ func _refresh_speed() -> void:
 func _refresh_buildables() -> void:
 	for tool in tool_buttons:
 		var affordable: bool = int(factory.build_ingots) >= int(tool_costs[tool])
+		var tint := Color(1, 1, 1) if affordable else Color(0.38, 0.38, 0.38)
 		if tool == factory.selected_tool:
-			tool_buttons[tool].modulate = Color(1, 1, 1)
-		elif affordable:
-			tool_buttons[tool].modulate = Color(0.7, 0.7, 0.7)
-		else:
-			tool_buttons[tool].modulate = Color(0.4, 0.4, 0.4)
+			tint *= 1.3   # overbright glow so the active tool still stands out
+		tool_buttons[tool].modulate = tint
 
 func _on_launch_pressed() -> void:
 	if factory.launch_armed:

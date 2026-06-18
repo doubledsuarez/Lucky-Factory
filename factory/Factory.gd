@@ -117,28 +117,83 @@ func _process(delta: float) -> void:
 # --- belt simulation ---
 
 func _advance_items(scaled_delta: float) -> void:
-	# grab the filled cells first so an item moves at most one cell per frame
-	var occupied_coordinates := []
+	# every belt cell currently carrying something
+	var occupied := []
 	for coordinate in cells.keys():
 		var cell: Cell = cells[coordinate]
 		if cell.kind == CellKind.BELT and cell.item != null:
-			occupied_coordinates.append(coordinate)
-	for coordinate in occupied_coordinates:
-		var cell: Cell = cells.get(coordinate)
-		if cell == null or cell.item == null:
-			continue
-		var item: Item = cell.item
-		var next_coordinate: Vector2i = coordinate + DIRECTIONS[cell.output_direction]
-		var next_cell: Cell = cells.get(next_coordinate)
-		var can_hand_off := next_cell != null \
-			and _accepts_from(next_cell, next_coordinate, coordinate) \
-			and _has_room_for(next_cell, item.definition)
-		item.offset += BELT_SPEED * scaled_delta
-		if can_hand_off:
-			if item.offset >= 1.0:
-				_hand_off(item, coordinate, next_coordinate)
+			occupied.append(coordinate)
+	# decide which items may step forward this tick. an item may move when the cell ahead
+	# accepts it and is either free or being vacated by another mover this same tick -- that
+	# vacated-together rule is what keeps a full chain, or a closed loop, moving in sync.
+	var can_move := {}
+	for coordinate in occupied:
+		can_move[coordinate] = _belt_forward_open(coordinate)
+	var changed := true
+	while changed:
+		changed = false
+		for coordinate in occupied:
+			if not can_move[coordinate]:
+				continue
+			var cell: Cell = cells[coordinate]
+			var ahead: Vector2i = coordinate + DIRECTIONS[cell.output_direction]
+			var ahead_cell: Cell = cells.get(ahead)
+			if ahead_cell != null and ahead_cell.kind == CellKind.BELT and ahead_cell.item != null \
+				and not can_move.get(ahead, false):
+				can_move[coordinate] = false
+				changed = true
+	# advance offsets; movers run up to the edge, blocked items rest a little further back
+	for coordinate in occupied:
+		var item: Item = cells[coordinate].item
+		if can_move[coordinate]:
+			item.offset = min(item.offset + BELT_SPEED * scaled_delta, 1.0)
 		else:
-			item.offset = min(item.offset, EDGE_REST_OFFSET)  # nowhere to go, sit at the edge
+			item.offset = min(item.offset + BELT_SPEED * scaled_delta, EDGE_REST_OFFSET)
+	# of the movers, the ones that have reached the next cell this tick
+	var crossing := {}
+	for coordinate in occupied:
+		if can_move[coordinate] and cells[coordinate].item.offset >= 1.0:
+			crossing[coordinate] = true
+	# a mover may only enter a belt that is empty or is itself crossing this tick
+	changed = true
+	while changed:
+		changed = false
+		for coordinate in crossing.keys():
+			var cell: Cell = cells[coordinate]
+			var ahead: Vector2i = coordinate + DIRECTIONS[cell.output_direction]
+			var ahead_cell: Cell = cells.get(ahead)
+			if ahead_cell != null and ahead_cell.kind == CellKind.BELT and ahead_cell.item != null \
+				and not crossing.has(ahead):
+				crossing.erase(coordinate)
+				changed = true
+	# clear the sources first, then drop each item into the cell ahead, so a packed run
+	# hands off without one step clobbering the next
+	var landings := {}
+	for coordinate in crossing.keys():
+		var cell: Cell = cells[coordinate]
+		var item: Item = cell.item
+		var ahead: Vector2i = coordinate + DIRECTIONS[cell.output_direction]
+		if cells[ahead].kind == CellKind.BELT:
+			cell.item = null
+			landings[ahead] = item
+		else:
+			_hand_off(item, coordinate, ahead)  # machine or router intake handles itself
+	for target in landings.keys():
+		var item: Item = landings[target]
+		item.offset = clamp(item.offset - 1.0, 0.0, 0.99)
+		cells[target].item = item
+
+# is the cell ahead of this belt able to take its item (ignoring belt occupancy, which the
+# mover pass resolves) -- machines and routers report their real capacity here
+func _belt_forward_open(coordinate: Vector2i) -> bool:
+	var cell: Cell = cells[coordinate]
+	var ahead: Vector2i = coordinate + DIRECTIONS[cell.output_direction]
+	var ahead_cell: Cell = cells.get(ahead)
+	if ahead_cell == null:
+		return false
+	if ahead_cell.kind == CellKind.BELT:
+		return _accepts_from(ahead_cell, ahead, coordinate)
+	return _can_deliver(coordinate, ahead, cell.item.definition)
 
 func _hand_off(item: Item, from_coordinate: Vector2i, into_coordinate: Vector2i) -> void:
 	var into_cell: Cell = cells[into_coordinate]
@@ -284,14 +339,12 @@ func _advance_routers(scaled_delta: float) -> void:
 				_advance_merger_intake(coordinate, cell)
 			continue
 		var item: Item = cell.item
-		if item.offset < 0.5:
-			item.offset = min(item.offset + BELT_SPEED * scaled_delta, 0.5)
-			continue
-		if item.route_exit == -1:
-			item.route_exit = _choose_router_exit(coordinate, cell, item)
-			if item.route_exit == -1:
-				continue  # nowhere to go yet, sit at the center
 		item.offset += BELT_SPEED * scaled_delta
+		if item.route_exit == -1 and item.offset >= 0.5:
+			item.route_exit = _choose_router_exit(coordinate, cell, item)
+		if item.route_exit == -1:
+			item.offset = min(item.offset, 0.5)  # no open exit yet, idle at the center
+			continue
 		if item.offset >= 1.0:
 			if _deliver_to(coordinate, coordinate + DIRECTIONS[item.route_exit], item):
 				if cell.router_kind == RouterKind.SPLITTER:
@@ -299,6 +352,8 @@ func _advance_routers(scaled_delta: float) -> void:
 				cell.item = null
 			else:
 				item.offset = 1.0  # exit blocked, wait at the edge
+				if cell.router_kind == RouterKind.SPLITTER:
+					item.route_exit = -1  # let it re-pick another open output instead of locking up
 
 func _choose_router_exit(coordinate: Vector2i, cell: Cell, item: Item) -> int:
 	if cell.router_kind == RouterKind.MERGER:
@@ -306,20 +361,17 @@ func _choose_router_exit(coordinate: Vector2i, cell: Cell, item: Item) -> int:
 		return exit_direction if _can_deliver(coordinate, coordinate + DIRECTIONS[exit_direction], item.definition) else -1
 	return _next_splitter_exit(coordinate, cell)
 
-# splitter commits to the next connected output in order, skipping only sides with no connection
+# splitter takes the next output in round-robin order that can accept the item right now,
+# so a backed-up output gets skipped instead of starving the rest
 func _next_splitter_exit(coordinate: Vector2i, cell: Cell) -> int:
 	for step in range(DIRECTIONS.size()):
 		var direction := (cell.round_robin_index + step) % DIRECTIONS.size()
 		if direction == cell.input_direction:
 			continue
-		if _has_connection(coordinate, direction):
+		if _can_deliver(coordinate, coordinate + DIRECTIONS[direction], cell.item.definition):
 			return direction
 	return -1
 
-func _has_connection(coordinate: Vector2i, side: int) -> bool:
-	var neighbor_coordinate: Vector2i = coordinate + DIRECTIONS[side]
-	var neighbor: Cell = cells.get(neighbor_coordinate)
-	return neighbor != null and _connects_from(neighbor, neighbor_coordinate, coordinate)
 
 # a merger steps to the next connected input that has something ready, in order, for an even merge
 func _advance_merger_intake(coordinate: Vector2i, cell: Cell) -> void:
@@ -541,11 +593,23 @@ func _remove_cell(coordinate: Vector2i) -> void:
 		if _is_prefab(machine.definition.kind):
 			return  # the depo and shuttle stay put
 		build_ingots = min(build_ingots + machine.definition.build_cost, BUILD_INGOT_CAP)
+		_return_scrap_to_depo(int(machine.inputs.get(&"scrap", 0)))  # waiting intake scrap goes home
 		for machine_cell in _machine_world_cells(machine):
 			cells.erase(machine_cell)
 		return
 	build_ingots = min(build_ingots + _cost_of_cell(cell), BUILD_INGOT_CAP)
+	_return_scrap_to_depo(_scrap_on_cell(cell))  # scrap riding this belt or router goes home
 	cells.erase(coordinate)
+
+func _scrap_on_cell(cell: Cell) -> int:
+	return 1 if cell.item != null and cell.item.definition.id == &"scrap" else 0
+
+func _return_scrap_to_depo(count: int) -> void:
+	if count <= 0:
+		return
+	var depo_cell: Cell = cells.get(depo_coordinate)
+	if depo_cell != null and depo_cell.kind == CellKind.MACHINE:
+		depo_cell.machine.stored += count
 
 func _is_prefab(machine_kind: int) -> bool:
 	return machine_kind == MachineDef.Kind.SOURCE or machine_kind == MachineDef.Kind.SHUTTLE
@@ -973,36 +1037,43 @@ func _item_polygon(shape: ItemDef.Shape, center: Vector2) -> PackedVector2Array:
 		moved.append(point + center)
 	return moved
 
+const BLOCKED_OVERLAY := Color(1.0, 0.25, 0.25, 0.4)
+
 func _draw_placement_preview() -> void:
 	var rect := _cell_rect(hovered_coordinate)
 	var input_direction := _opposite_direction(placement_direction)
 	match selected_tool:
 		Tool.BELT:
-			if cells.has(hovered_coordinate):
-				draw_rect(rect, Color(1, 0.3, 0.3, 0.25))
-			else:
-				_draw_belt_placeholder(rect, input_direction, placement_direction, 0.5)
+			_draw_belt_placeholder(rect, input_direction, placement_direction, 0.5)
+			if not _can_place_single(hovered_coordinate, BELT_COST):
+				draw_rect(rect, BLOCKED_OVERLAY)
 		Tool.SPLITTER:
-			if cells.has(hovered_coordinate):
-				draw_rect(rect, Color(1, 0.3, 0.3, 0.25))
-			else:
-				_draw_router_shape(rect, RouterKind.SPLITTER, input_direction, placement_direction, 0.5)
+			_draw_router_shape(rect, RouterKind.SPLITTER, input_direction, placement_direction, 0.5)
+			if not _can_place_single(hovered_coordinate, SPLITTER_COST):
+				draw_rect(rect, BLOCKED_OVERLAY)
 		Tool.MERGER:
-			if cells.has(hovered_coordinate):
-				draw_rect(rect, Color(1, 0.3, 0.3, 0.25))
-			else:
-				_draw_router_shape(rect, RouterKind.MERGER, input_direction, placement_direction, 0.5)
+			_draw_router_shape(rect, RouterKind.MERGER, input_direction, placement_direction, 0.5)
+			if not _can_place_single(hovered_coordinate, MERGER_COST):
+				draw_rect(rect, BLOCKED_OVERLAY)
 		_:
 			_draw_machine_preview(TOOL_MACHINE[selected_tool])
 
+func _cell_in_bounds(coordinate: Vector2i) -> bool:
+	return coordinate.x >= 0 and coordinate.y >= 0 and coordinate.x < GRID_COLUMNS and coordinate.y < GRID_ROWS
+
+func _can_place_single(coordinate: Vector2i, cost: int) -> bool:
+	return _cell_in_bounds(coordinate) and not cells.has(coordinate) and _afford(cost)
+
 func _draw_machine_preview(machine_id: StringName) -> void:
 	var def: MachineDef = Database.machine(machine_id)
-	var fits := _machine_fits(hovered_coordinate, def, placement_direction)
-	var color := def.color if fits else Color(1.0, 0.3, 0.3)
+	var blocked := not _machine_fits(hovered_coordinate, def, placement_direction) or not _afford(def.build_cost)
 	for offset in _footprint_offsets(def, placement_direction):
-		var fill := color
+		var cell_rect := _cell_rect(hovered_coordinate + offset)
+		var fill := def.color
 		fill.a = 0.4
-		draw_rect(_cell_rect(hovered_coordinate + offset), fill)
+		draw_rect(cell_rect, fill)
+		if blocked:
+			draw_rect(cell_rect, BLOCKED_OVERLAY)
 	for port in _world_ports(def, hovered_coordinate, placement_direction):
 		_draw_port(port.coord, port.side, port.role, 0.7)
 	var label := def.display_name
