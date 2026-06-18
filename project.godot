@@ -19,6 +19,7 @@ config/icon="res://assets/icon.svg"
 
 Sim="*res://autoload/Sim.gd"
 Database="*res://autoload/Database.gd"
+Run="*res://autoload/Run.gd"
 
 [display]
 
