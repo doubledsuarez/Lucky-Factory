@@ -19,11 +19,15 @@ config/icon="res://assets/icon.svg"
 
 Sim="*res://autoload/Sim.gd"
 Database="*res://autoload/Database.gd"
+Run="*res://autoload/Run.gd"
 
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+window/size/mode=2
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [physics]
 
