@@ -21,7 +21,7 @@ const ZOOM_MIN := 0.75
 const ZOOM_MAX := 2.0
 const ZOOM_STEP := 0.15
 const PAN_MARGIN_CELLS := 5  # how far past the floor the view may scroll
-const WAVE_BUILD_TIME := 240.0
+const WAVE_BUILD_TIME := 1800.0
 
 enum CellKind { BELT, MACHINE, ROUTER }
 enum RouterKind { SPLITTER, MERGER }
@@ -68,7 +68,6 @@ var depo_coordinate := Vector2i(1, 6)
 var shuttle_coordinate := Vector2i(GRID_COLUMNS - 2, 6)
 var build_ingots := STARTING_BUILD_INGOTS
 var selected_tool := Tool.BELT
-var crafter_recipe_index := 0  # which part a new crafter will make
 var placement_direction := 0   # facing used when you place something
 var hovered_coordinate := Vector2i.ZERO
 
@@ -77,6 +76,7 @@ var belt_animation_time := 0.0
 @export var show_animations := true   # turn off to see plain placeholders for debugging
 
 @onready var camera: Camera2D = $Camera2D
+@onready var hud: Control = $HudLayer/Hud
 
 # while dragging belts, each one links to the last so corners form on their own
 var has_chain_anchor := false
@@ -211,6 +211,10 @@ func _enter_router(item: Item, from_coordinate: Vector2i, router_coordinate: Vec
 	item.offset = 0.0
 	item.route_entry = _direction_index(from_coordinate - router_coordinate)
 	item.route_exit = -1
+	var router: Cell = cells.get(router_coordinate)
+	if router != null and router.router_kind == RouterKind.MERGER:
+		# just took one from this side, so rotate on so the other inputs get a fair turn next
+		router.round_robin_index = (router.round_robin_index + 1) % DIRECTIONS.size()
 
 # --- machine simulation ---
 
@@ -235,6 +239,8 @@ func _tick_source(cell: Cell) -> void:
 func _tick_crafter(cell: Cell, scaled_delta: float) -> void:
 	var machine := cell.machine
 	var recipe := machine.recipe
+	if recipe == null:
+		return  # waiting on a recipe to be picked
 	var output_definition := Database.item(recipe.output_id)
 	if machine.output_count < output_definition.stack_size and _has_recipe_inputs(machine, recipe):
 		machine.progress += scaled_delta
@@ -314,7 +320,7 @@ func _deposit_into_machine(machine: Machine, item: Item) -> void:
 			machine.inputs[item.definition.slot] = item.definition
 		MachineDef.Kind.SHUTTLE:
 			if item.loadout != null:
-				Run.pending_robots.append(item.loadout)
+				Run.load_robot(item.loadout)
 
 func _has_recipe_inputs(machine: Machine, recipe: Recipe) -> bool:
 	for input_id in recipe.inputs:
@@ -373,8 +379,11 @@ func _next_splitter_exit(coordinate: Vector2i, cell: Cell) -> int:
 	return -1
 
 
-# a merger steps to the next connected input that has something ready, in order, for an even merge
+# a merger holds its current input while it still has something coming, and only hunts for the
+# next ready one when that side runs dry -- it rotates for fairness as each item is taken (see _enter_router)
 func _advance_merger_intake(coordinate: Vector2i, cell: Cell) -> void:
+	if cell.round_robin_index != cell.output_direction and _input_ready(coordinate, cell.round_robin_index):
+		return  # keep accepting from this side; don't thrash the selection while an item is arriving
 	for step in range(1, DIRECTIONS.size() + 1):
 		var side := (cell.round_robin_index + step) % DIRECTIONS.size()
 		if side != cell.output_direction and _input_ready(coordinate, side):
@@ -451,9 +460,11 @@ func _machine_accepts(machine: Machine, item_definition: ItemDef) -> bool:
 	match machine.definition.kind:
 		MachineDef.Kind.CRAFTER:
 			var recipe := machine.recipe
-			if not recipe.inputs.has(item_definition.id):
-				return false
-			return machine.inputs.get(item_definition.id, 0) < item_definition.stack_size
+			if recipe == null or not recipe.inputs.has(item_definition.id):
+				return false  # no recipe picked yet means nothing flows in
+			# hold at least one full recipe's worth, plus a stack of buffer for steady crafting
+			var capacity: int = maxi(int(recipe.inputs[item_definition.id]), item_definition.stack_size)
+			return machine.inputs.get(item_definition.id, 0) < capacity
 		MachineDef.Kind.STORAGE:
 			return item_definition.id == machine.definition.storage_item and build_ingots < BUILD_INGOT_CAP
 		MachineDef.Kind.ASSEMBLER:
@@ -471,7 +482,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
-				_place_at(_world_to_cell(get_global_mouse_position()))
+				var clicked := _world_to_cell(get_global_mouse_position())
+				var existing: Cell = cells.get(clicked)
+				if existing != null and existing.kind == CellKind.MACHINE and existing.machine.definition.kind == MachineDef.Kind.SHUTTLE:
+					hud.toggle_shuttle_panel()                  # click the shuttle to see its manifest
+				elif existing != null and existing.kind == CellKind.MACHINE and not _is_prefab(existing.machine.definition.kind):
+					hud.open_machine_panel(existing.machine)    # click a placed machine to configure it
+				else:
+					_place_at(clicked)
 			else:
 				has_chain_anchor = false               # done dragging
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
@@ -500,7 +518,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_B: selected_tool = Tool.BELT
 			KEY_F: selected_tool = Tool.FORGE
 			KEY_K: selected_tool = Tool.BANK
-			KEY_C: _select_crafter_tool()
+			KEY_C: selected_tool = Tool.CRAFTER
 			KEY_A: selected_tool = Tool.ASSEMBLER
 			KEY_S: selected_tool = Tool.SPLITTER
 			KEY_M: selected_tool = Tool.MERGER
@@ -520,10 +538,7 @@ func _place_at(coordinate: Vector2i) -> void:
 	if selected_tool == Tool.MERGER:
 		_place_router(coordinate, RouterKind.MERGER)
 		return
-	var recipe_override: Recipe = null
-	if selected_tool == Tool.CRAFTER:
-		recipe_override = _selected_crafter_recipe()
-	_place_machine(coordinate, TOOL_MACHINE[selected_tool], recipe_override)
+	_place_machine(coordinate, TOOL_MACHINE[selected_tool])
 
 func _place_router(coordinate: Vector2i, router_kind: int) -> void:
 	var cost := SPLITTER_COST if router_kind == RouterKind.SPLITTER else MERGER_COST
@@ -541,16 +556,6 @@ func _place_router(coordinate: Vector2i, router_kind: int) -> void:
 
 func _afford(cost: int) -> bool:
 	return build_ingots >= cost
-
-func _select_crafter_tool() -> void:
-	if selected_tool == Tool.CRAFTER:
-		var count := Database.machine(&"crafter").recipes.size()
-		crafter_recipe_index = (crafter_recipe_index + 1) % count
-	else:
-		selected_tool = Tool.CRAFTER
-
-func _selected_crafter_recipe() -> Recipe:
-	return Database.machine(&"crafter").recipes[crafter_recipe_index]
 
 func _try_place_belt(coordinate: Vector2i) -> void:
 	if cells.has(coordinate) or not _afford(BELT_COST):
@@ -641,7 +646,12 @@ func _create_machine(origin: Vector2i, machine_id: StringName, orientation: int,
 		return false
 	var machine := Machine.new()
 	machine.definition = def
-	machine.recipe = recipe_override if recipe_override != null else def.recipe
+	if recipe_override != null:
+		machine.recipe = recipe_override
+	elif def.recipes.is_empty():
+		machine.recipe = def.recipe        # single-recipe machine like the forge
+	else:
+		machine.recipe = null              # pick-list machine: stays empty until configured
 	machine.origin = origin
 	machine.orientation = orientation
 	machine.footprint = _rotated_footprint(def.footprint, orientation)
@@ -825,9 +835,6 @@ func _pick_machine_tool(machine: Machine) -> void:
 		&"assembler": selected_tool = Tool.ASSEMBLER
 		&"crafter":
 			selected_tool = Tool.CRAFTER
-			var index := machine.definition.recipes.find(machine.recipe)
-			if index != -1:
-				crafter_recipe_index = index
 
 func _world_to_cell(world_position: Vector2) -> Vector2i:
 	return Vector2i(floori(world_position.x / float(CELL_SIZE)), floori(world_position.y / float(CELL_SIZE)))
@@ -931,19 +938,20 @@ func _draw_machine_ui(cell: Cell) -> void:
 	draw_string(font, rect.position + Vector2(3, 13), _machine_label(machine), 0, -1, 10, Color(1, 1, 1, 0.95))
 	match machine.definition.kind:
 		MachineDef.Kind.CRAFTER, MachineDef.Kind.ASSEMBLER:
-			var fraction := clampf(machine.progress / machine.recipe.craft_time, 0.0, 1.0)
-			draw_rect(Rect2(rect.position + Vector2(2, rect.size.y - 5), Vector2((rect.size.x - 4) * fraction, 3)), Color(0.5, 0.9, 0.5))
+			if machine.recipe != null:
+				var fraction := clampf(machine.progress / machine.recipe.craft_time, 0.0, 1.0)
+				draw_rect(Rect2(rect.position + Vector2(2, rect.size.y - 5), Vector2((rect.size.x - 4) * fraction, 3)), Color(0.5, 0.9, 0.5))
 		MachineDef.Kind.STORAGE:
 			draw_string(font, rect.position + Vector2(3, rect.size.y - 4), str(build_ingots), 0, -1, 10, Color(1, 1, 1, 0.9))
 		MachineDef.Kind.SOURCE:
 			draw_string(font, rect.position + Vector2(3, rect.size.y - 4), str(machine.stored), 0, -1, 10, Color(1, 1, 1, 0.9))
 		MachineDef.Kind.SHUTTLE:
-			draw_string(font, rect.position + Vector2(3, rect.size.y - 4), str(Run.pending_robots.size()), 0, -1, 10, Color(1, 1, 1, 0.9))
+			draw_string(font, rect.position + Vector2(3, rect.size.y - 4), str(Run.shuttle_robots.size()), 0, -1, 10, Color(1, 1, 1, 0.9))
 
 func _machine_label(machine: Machine) -> String:
-	# a crafter shows what it's making; everything else shows its own name
+	# a configured crafter shows what it's making; an empty one says so
 	if machine.definition.kind == MachineDef.Kind.CRAFTER and not machine.definition.recipes.is_empty():
-		return Database.item(machine.recipe.output_id).display_name
+		return Database.item(machine.recipe.output_id).display_name if machine.recipe != null else "Crafter (empty)"
 	return machine.definition.display_name
 
 func _draw_machine_body(machine: Machine, alpha: float) -> void:
@@ -1076,10 +1084,7 @@ func _draw_machine_preview(machine_id: StringName) -> void:
 			draw_rect(cell_rect, BLOCKED_OVERLAY)
 	for port in _world_ports(def, hovered_coordinate, placement_direction):
 		_draw_port(port.coord, port.side, port.role, 0.7)
-	var label := def.display_name
-	if selected_tool == Tool.CRAFTER:
-		label = Database.item(_selected_crafter_recipe().output_id).display_name
-	draw_string(ThemeDB.fallback_font, _cell_rect(hovered_coordinate).position + Vector2(3, 13), label, 0, -1, 10, Color(1, 1, 1, 0.7))
+	draw_string(ThemeDB.fallback_font, _cell_rect(hovered_coordinate).position + Vector2(3, 13), def.display_name, 0, -1, 10, Color(1, 1, 1, 0.7))
 
 # --- HUD data (read by the Hud layer) ---
 
@@ -1095,11 +1100,12 @@ func buildables() -> Array:
 	]
 
 func select_build_tool(tool: int) -> void:
-	if tool == Tool.CRAFTER:
-		_select_crafter_tool()
-	else:
-		selected_tool = tool
+	selected_tool = tool
 	disarm_launch()
+
+func assign_recipe(machine: Machine, recipe: Recipe) -> void:
+	machine.recipe = recipe
+	machine.progress = 0.0
 
 func scrap_total() -> int:
 	var total := 0
@@ -1111,16 +1117,18 @@ func scrap_total() -> int:
 
 func robot_groups() -> Array:
 	var counts := {}
+	var sample := {}
 	var order := []
-	for loadout in Run.pending_robots:
+	for loadout in Run.shuttle_robots:
 		var signature: String = loadout.signature()
 		if not counts.has(signature):
 			counts[signature] = 0
+			sample[signature] = loadout
 			order.append(signature)
 		counts[signature] += 1
 	var result := []
 	for signature in order:
-		result.append({ "signature": signature, "count": counts[signature] })
+		result.append({ "signature": signature, "count": counts[signature], "loadout": sample[signature] })
 	return result
 
 func time_text() -> String:
@@ -1132,7 +1140,8 @@ func arm_launch() -> void:
 
 func confirm_launch() -> void:
 	launch_armed = false
-	# the army waits in Run.pending_robots, ready for the battle scene once it exists
+	var army := Run.launch_shuttle()  # hand the loaded robots to the battle phase
+	print("Shuttle launched with %d robots" % army.size())
 
 func disarm_launch() -> void:
 	launch_armed = false

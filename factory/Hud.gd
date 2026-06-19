@@ -11,12 +11,15 @@ const SPEEDS := [0.5, 1.0, 2.0]
 var scrap_label: Label
 var ingot_label: Label
 var timer_label: Label
-var robot_row: HBoxContainer
+var manifest_button: Button
+var shuttle_panel: PanelContainer
+var shuttle_list: VBoxContainer
 var launch_button: Button
 var tool_buttons := {}   # tool -> Button
 var tool_costs := {}     # tool -> int
 var speed_buttons := {}  # speed -> Button
 var last_robot_state := ""
+var machine_panel: Control = null
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -25,6 +28,7 @@ func _ready() -> void:
 	_build_build_bar()
 	_build_launch_button()
 	_build_controls_hint()
+	_build_shuttle_panel()
 
 func _process(_delta: float) -> void:
 	scrap_label.text = str(factory.scrap_total())
@@ -54,13 +58,14 @@ func _build_top_bar() -> void:
 	ingot_label = _make_label("0")
 	row.add_child(ingot_label)
 	row.add_child(_make_spacer())
-	timer_label = _make_label("4:00")
+	timer_label = _make_label("30:00")
 	timer_label.add_theme_font_size_override("font_size", 18)
 	row.add_child(timer_label)
 	row.add_child(_make_spacer())
-	robot_row = HBoxContainer.new()
-	robot_row.add_theme_constant_override("separation", 6)
-	row.add_child(robot_row)
+	manifest_button = Button.new()
+	manifest_button.text = "Robots: 0"
+	manifest_button.pressed.connect(toggle_shuttle_panel)
+	row.add_child(manifest_button)
 
 # --- bottom build bar ---
 
@@ -124,6 +129,85 @@ func _build_controls_hint() -> void:
 	column.add_child(_make_hint_label("[R]", "Rotate"))
 	column.add_child(_make_hint_label("[MMB]", "Pan / Pick"))
 
+# --- shuttle manifest (toggled from the top bar) ---
+
+func _build_shuttle_panel() -> void:
+	shuttle_panel = PanelContainer.new()
+	shuttle_panel.anchor_left = 1.0
+	shuttle_panel.anchor_right = 1.0
+	shuttle_panel.anchor_top = 0.0
+	shuttle_panel.anchor_bottom = 1.0
+	shuttle_panel.offset_left = -250
+	shuttle_panel.offset_right = -12
+	shuttle_panel.offset_top = 148   # below the launch button
+	shuttle_panel.offset_bottom = -92
+	shuttle_panel.add_theme_stylebox_override("panel", _panel_style(BAR_COLOR))
+	shuttle_panel.visible = false     # hidden until the player opens it, so it doesn't cover the floor
+	add_child(shuttle_panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 4)
+	shuttle_panel.add_child(column)
+	var title := _make_label("Shuttle manifest")
+	title.add_theme_font_size_override("font_size", 14)
+	column.add_child(title)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(scroll)
+	shuttle_list = VBoxContainer.new()
+	shuttle_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shuttle_list.add_theme_constant_override("separation", 4)
+	scroll.add_child(shuttle_list)
+
+func toggle_shuttle_panel() -> void:
+	shuttle_panel.visible = not shuttle_panel.visible
+	if shuttle_panel.visible:
+		_rebuild_shuttle_list(factory.robot_groups())
+
+func _rebuild_shuttle_list(groups: Array) -> void:
+	for child in shuttle_list.get_children():
+		child.free()
+	if groups.is_empty():
+		shuttle_list.add_child(_make_label("Shuttle empty"))
+		return
+	for group in groups:
+		shuttle_list.add_child(_make_robot_card(group))
+
+func _make_robot_card(group: Dictionary) -> Control:
+	var loadout = group.loadout
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _icon_style(Color(0.18, 0.18, 0.24)))
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	card.add_child(box)
+	var header := _make_label("x%d" % group.count)
+	header.add_theme_font_size_override("font_size", 13)
+	box.add_child(header)
+	box.add_child(_make_wrapped_label(_loadout_parts_text(loadout), Color(1, 1, 1)))
+	box.add_child(_make_wrapped_label(_loadout_stats_text(loadout), Color(0.82, 0.88, 0.95)))
+	return card
+
+func _make_wrapped_label(text: String, color: Color) -> Label:
+	var label := _make_label(text)
+	label.add_theme_font_size_override("font_size", 10)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.modulate = color
+	return label
+
+func _loadout_parts_text(loadout) -> String:
+	return "%s · %s · %s · %s" % [
+		_strip_scrap(loadout.head.display_name), _strip_scrap(loadout.torso.display_name),
+		_strip_scrap(loadout.legs.display_name), _strip_scrap(loadout.arms.display_name)]
+
+func _loadout_stats_text(loadout) -> String:
+	return "ARM %d   DMG %d   RNG %.0f   ATK %.1f   SPD %.2f   TRN %.2f" % [
+		loadout.total_armor(), loadout.damage(), loadout.attack_range(),
+		loadout.attack_speed(), loadout.move_speed(), loadout.turn_rate()]
+
+func _strip_scrap(part_name: String) -> String:
+	return part_name.trim_prefix("Scrap ")
+
 func _make_hint_label(keys: String, action: String) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
@@ -140,13 +224,14 @@ func _make_build_entry(entry: Dictionary) -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 2)
 	var button := Button.new()
-	button.custom_minimum_size = Vector2(60, 44)
+	button.custom_minimum_size = Vector2(64, 52)
 	button.text = entry.name
 	button.add_theme_font_size_override("font_size", 11)
 	button.add_theme_stylebox_override("normal", _icon_style(entry.color))
 	button.add_theme_stylebox_override("hover", _icon_style(entry.color.lightened(0.12)))
 	button.add_theme_stylebox_override("pressed", _icon_style(entry.color.lightened(0.2)))
 	button.pressed.connect(_on_build_pressed.bind(entry.tool))
+	_add_cost_badge(button, entry.cost)
 	box.add_child(button)
 	var hotkey := _make_label("[%s]" % entry.hotkey)
 	hotkey.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -156,21 +241,46 @@ func _make_build_entry(entry: Dictionary) -> Control:
 	tool_costs[entry.tool] = entry.cost
 	return box
 
+# ingot icon + cost number tucked into the bottom-left corner of a build button
+func _add_cost_badge(button: Button, cost: int) -> void:
+	var icon := _make_item_chip(&"ingot")
+	icon.custom_minimum_size = Vector2.ZERO
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.anchor_top = 1.0
+	icon.anchor_bottom = 1.0
+	icon.offset_left = 3
+	icon.offset_right = 15
+	icon.offset_top = -15
+	icon.offset_bottom = -3
+	button.add_child(icon)
+	var cost_label := Label.new()
+	cost_label.text = str(cost)
+	cost_label.add_theme_font_size_override("font_size", 10)
+	cost_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	cost_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cost_label.anchor_top = 1.0
+	cost_label.anchor_bottom = 1.0
+	cost_label.offset_left = 17
+	cost_label.offset_right = 56
+	cost_label.offset_top = -16
+	cost_label.offset_bottom = -2
+	button.add_child(cost_label)
+
 # --- dynamic bits ---
 
 func _refresh_robots() -> void:
 	var groups: Array = factory.robot_groups()
 	var state := ""
+	var total := 0
 	for group in groups:
 		state += "%s:%d," % [group.signature, group.count]
+		total += group.count
 	if state == last_robot_state:
 		return
 	last_robot_state = state
-	for child in robot_row.get_children():
-		child.free()
-	for group in groups:
-		robot_row.add_child(_make_item_chip(&"robot"))
-		robot_row.add_child(_make_label("x%d" % group.count))
+	manifest_button.text = "Robots: %d" % total
+	if shuttle_panel.visible:
+		_rebuild_shuttle_list(groups)
 
 func _refresh_launch() -> void:
 	var has_robots: bool = not factory.robot_groups().is_empty()
@@ -216,6 +326,61 @@ func _on_speed_pressed(speed: float) -> void:
 
 func _on_build_pressed(tool: int) -> void:
 	factory.select_build_tool(tool)
+
+# --- machine config panel (opened by clicking a placed machine) ---
+
+func open_machine_panel(machine) -> void:
+	_close_machine_panel()
+	var recipes: Array = machine.definition.recipes
+	if recipes.is_empty():
+		return  # nothing to configure yet; slot view for other machines comes later
+	var holder := CenterContainer.new()
+	holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(holder)
+	machine_panel = holder
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style(BAR_COLOR))
+	holder.add_child(panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 6)
+	panel.add_child(column)
+	var header := HBoxContainer.new()
+	var title := _make_label("Choose a part to craft")
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+	var close := Button.new()
+	close.text = "X"
+	close.pressed.connect(_close_machine_panel)
+	header.add_child(close)
+	column.add_child(header)
+	var grid := GridContainer.new()
+	grid.columns = 3   # 3 variants across, one slot per row
+	grid.add_theme_constant_override("h_separation", 4)
+	grid.add_theme_constant_override("v_separation", 4)
+	column.add_child(grid)
+	for recipe in recipes:
+		grid.add_child(_make_recipe_button(machine, recipe))
+
+func _make_recipe_button(machine, recipe) -> Button:
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(124, 40)
+	button.add_theme_font_size_override("font_size", 11)
+	var part: ItemDef = Database.item(recipe.output_id)
+	button.text = "%s\n%d ingots" % [part.display_name, int(recipe.inputs.get(&"ingot", 0))]
+	if machine.recipe == recipe:
+		button.modulate = Color(0.6, 1.0, 0.6)  # the recipe this machine is already set to
+	button.pressed.connect(_on_recipe_chosen.bind(machine, recipe))
+	return button
+
+func _on_recipe_chosen(machine, recipe) -> void:
+	factory.assign_recipe(machine, recipe)
+	_close_machine_panel()
+
+func _close_machine_panel() -> void:
+	if machine_panel != null:
+		machine_panel.queue_free()
+		machine_panel = null
 
 # --- placeholder graphics helpers ---
 

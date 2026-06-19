@@ -1,8 +1,13 @@
 extends Node
 ## Holds all game content and looks it up by id.
 
-const ITEM_CONTENT := preload("res://data/content/items.gd")
-const MACHINE_CONTENT := preload("res://data/content/machines.gd")
+# content is split by category so the files stay small; add a new file's preload here to register it
+const CONTENT := [
+	preload("res://data/content/items/materials.gd"),
+	preload("res://data/content/items/scrap_parts.gd"),
+	preload("res://data/content/machines/endpoints.gd"),
+	preload("res://data/content/machines/fabricators.gd"),
+]
 
 var items: Dictionary = {}              # id -> ItemDef
 var machines: Dictionary = {}           # id -> MachineDef
@@ -10,8 +15,8 @@ var machines: Dictionary = {}           # id -> MachineDef
 var _parts_by_slot: Dictionary = {}     # slot -> Array of ItemDef
 
 func _ready() -> void:
-	ITEM_CONTENT.register(self)
-	MACHINE_CONTENT.register(self)
+	for content in CONTENT:
+		content.register(self)
 	_build_indexes()
 
 func add_item(definition: ItemDef) -> void:
