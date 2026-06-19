@@ -753,6 +753,12 @@ func _snap_belt(coordinate: Vector2i) -> void:
 	var cell: Cell = cells.get(coordinate)
 	if cell == null or cell.kind != CellKind.BELT:
 		return
+	# placed pointing our output into something that actually feeds us (a machine or splitter
+	# output)? flip so we take input from it and send our output onward instead
+	if not _is_output_connected(coordinate, cell) and _outputs_into(coordinate + DIRECTIONS[cell.output_direction], coordinate):
+		var toward_source := cell.output_direction
+		cell.input_direction = toward_source
+		cell.output_direction = _opposite_direction(toward_source)
 	_snap_input_side(coordinate, cell)
 	_snap_output_side(coordinate, cell)
 
