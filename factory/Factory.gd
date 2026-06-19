@@ -2,24 +2,27 @@ extends Node2D
 ## The factory floor: place belts and machines and route scrap through them.
 ## Belts and machines have an input side and an output side, so items only flow the way they face.
 
-const CELL_SIZE := 32
-const ITEM_SIZE := 14.0
+# tile size in world pixels -- the one knob; everything below scales off it (belt art is authored at 64)
+const CELL_SIZE := 64
+const ITEM_SIZE := CELL_SIZE * 0.45              # item drawn size, kept proportional to the cell
 const BELT_SPEED := 1.0  # cells per second (60 a minute at tier 1). Sim.speed scales it.
 # where a stopped item sits: right at the edge, still on the belt
 const EDGE_REST_OFFSET := 1.0 - (ITEM_SIZE * 0.5) / CELL_SIZE
+const LABEL_FONT_SIZE := CELL_SIZE * 28 / 100    # ~17 at 64; scales with the cell
+const LABEL_INSET := CELL_SIZE * 0.1             # corner padding for in-cell text
 const DIRECTIONS := [Vector2i.RIGHT, Vector2i.DOWN, Vector2i.LEFT, Vector2i.UP]
 const GRID_COLUMNS := 40
 const GRID_ROWS := 22
 const DEPO_START_SCRAP := 1000
 const BELT_FRAMES_PER_SECOND := 8.0
 const STARTING_BUILD_INGOTS := 120
-const BUILD_INGOT_CAP := 999
 const BELT_COST := 5
 const SPLITTER_COST := 15
 const MERGER_COST := 15
-const ZOOM_MIN := 0.75
-const ZOOM_MAX := 2.0
-const ZOOM_STEP := 0.15
+const ZOOM_MIN := 0.4   # zoomed out enough to see the whole floor
+const ZOOM_MAX := 1.5   # 1.0 is native belt pixels
+const ZOOM_STEP := 0.1
+const DEFAULT_ZOOM := 0.5
 const PAN_MARGIN_CELLS := 5  # how far past the floor the view may scroll
 const WAVE_BUILD_TIME := 1800.0
 
@@ -93,6 +96,8 @@ func _ready() -> void:
 	_load_belt_frames()
 	_create_machine(depo_coordinate, &"depo", 0)
 	_create_machine(shuttle_coordinate, &"shuttle", 0)
+	camera.position = Vector2(GRID_COLUMNS, GRID_ROWS) * CELL_SIZE * 0.5  # center on the floor
+	camera.zoom = Vector2(DEFAULT_ZOOM, DEFAULT_ZOOM)
 	_clamp_camera()
 
 func _load_belt_frames() -> void:
@@ -315,7 +320,7 @@ func _deposit_into_machine(machine: Machine, item: Item) -> void:
 		MachineDef.Kind.CRAFTER:
 			machine.inputs[item.definition.id] = machine.inputs.get(item.definition.id, 0) + 1
 		MachineDef.Kind.STORAGE:
-			build_ingots = min(build_ingots + 1, BUILD_INGOT_CAP)
+			build_ingots += 1
 		MachineDef.Kind.ASSEMBLER:
 			machine.inputs[item.definition.slot] = item.definition
 		MachineDef.Kind.SHUTTLE:
@@ -399,7 +404,12 @@ func _input_ready(coordinate: Vector2i, side: int) -> bool:
 		CellKind.BELT:
 			return source.item != null
 		CellKind.ROUTER:
-			return source.item != null and source.route_exit == _direction_index(coordinate - source_coordinate)
+			# a feeding splitter only commits its exit once we open this side, so treat it as ready when
+			# its item is aimed here OR hasn't picked an exit yet -- otherwise the two wait on each other
+			if source.item == null:
+				return false
+			var toward := _direction_index(coordinate - source_coordinate)
+			return source.item.route_exit == toward or source.item.route_exit == -1
 		CellKind.MACHINE:
 			return _machine_can_output(source.machine)
 	return false
@@ -466,7 +476,7 @@ func _machine_accepts(machine: Machine, item_definition: ItemDef) -> bool:
 			var capacity: int = maxi(int(recipe.inputs[item_definition.id]), item_definition.stack_size)
 			return machine.inputs.get(item_definition.id, 0) < capacity
 		MachineDef.Kind.STORAGE:
-			return item_definition.id == machine.definition.storage_item and build_ingots < BUILD_INGOT_CAP
+			return item_definition.id == machine.definition.storage_item
 		MachineDef.Kind.ASSEMBLER:
 			return item_definition.slot != ItemDef.Slot.NONE and not machine.inputs.has(item_definition.slot)
 		MachineDef.Kind.SHUTTLE:
@@ -597,12 +607,12 @@ func _remove_cell(coordinate: Vector2i) -> void:
 		var machine := cell.machine
 		if _is_prefab(machine.definition.kind):
 			return  # the depo and shuttle stay put
-		build_ingots = min(build_ingots + machine.definition.build_cost, BUILD_INGOT_CAP)
+		build_ingots += machine.definition.build_cost
 		_return_scrap_to_depo(int(machine.inputs.get(&"scrap", 0)))  # waiting intake scrap goes home
 		for machine_cell in _machine_world_cells(machine):
 			cells.erase(machine_cell)
 		return
-	build_ingots = min(build_ingots + _cost_of_cell(cell), BUILD_INGOT_CAP)
+	build_ingots += _cost_of_cell(cell)
 	_return_scrap_to_depo(_scrap_on_cell(cell))  # scrap riding this belt or router goes home
 	cells.erase(coordinate)
 
@@ -935,18 +945,19 @@ func _draw_machine_ui(cell: Cell) -> void:
 	var machine := cell.machine
 	var rect := _machine_rect(machine)
 	var font := ThemeDB.fallback_font
-	draw_string(font, rect.position + Vector2(3, 13), _machine_label(machine), 0, -1, 10, Color(1, 1, 1, 0.95))
+	draw_string(font, rect.position + Vector2(LABEL_INSET, LABEL_FONT_SIZE), _machine_label(machine), 0, -1, LABEL_FONT_SIZE, Color(1, 1, 1, 0.95))
 	match machine.definition.kind:
 		MachineDef.Kind.CRAFTER, MachineDef.Kind.ASSEMBLER:
 			if machine.recipe != null:
 				var fraction := clampf(machine.progress / machine.recipe.craft_time, 0.0, 1.0)
-				draw_rect(Rect2(rect.position + Vector2(2, rect.size.y - 5), Vector2((rect.size.x - 4) * fraction, 3)), Color(0.5, 0.9, 0.5))
+				var bar_height := CELL_SIZE * 0.08
+				draw_rect(Rect2(rect.position + Vector2(LABEL_INSET, rect.size.y - bar_height - 2.0), Vector2((rect.size.x - LABEL_INSET * 2.0) * fraction, bar_height)), Color(0.5, 0.9, 0.5))
 		MachineDef.Kind.STORAGE:
-			draw_string(font, rect.position + Vector2(3, rect.size.y - 4), str(build_ingots), 0, -1, 10, Color(1, 1, 1, 0.9))
+			draw_string(font, rect.position + Vector2(LABEL_INSET, rect.size.y - LABEL_INSET), str(build_ingots), 0, -1, LABEL_FONT_SIZE, Color(1, 1, 1, 0.9))
 		MachineDef.Kind.SOURCE:
-			draw_string(font, rect.position + Vector2(3, rect.size.y - 4), str(machine.stored), 0, -1, 10, Color(1, 1, 1, 0.9))
+			draw_string(font, rect.position + Vector2(LABEL_INSET, rect.size.y - LABEL_INSET), str(machine.stored), 0, -1, LABEL_FONT_SIZE, Color(1, 1, 1, 0.9))
 		MachineDef.Kind.SHUTTLE:
-			draw_string(font, rect.position + Vector2(3, rect.size.y - 4), str(Run.shuttle_robots.size()), 0, -1, 10, Color(1, 1, 1, 0.9))
+			draw_string(font, rect.position + Vector2(LABEL_INSET, rect.size.y - LABEL_INSET), str(Run.shuttle_robots.size()), 0, -1, LABEL_FONT_SIZE, Color(1, 1, 1, 0.9))
 
 func _machine_label(machine: Machine) -> String:
 	# a configured crafter shows what it's making; an empty one says so
@@ -976,7 +987,7 @@ func _draw_router_shape(rect: Rect2, router_kind: int, input_direction: int, out
 	draw_rect(rect, fill)
 	draw_rect(rect, Color(0, 0, 0, 0.5 * alpha), false, 1.0)
 	var label := "SPL" if router_kind == RouterKind.SPLITTER else "MRG"
-	draw_string(ThemeDB.fallback_font, rect.position + Vector2(2, 12), label, 0, -1, 8, Color(1, 1, 1, alpha))
+	draw_string(ThemeDB.fallback_font, rect.position + Vector2(LABEL_INSET, LABEL_FONT_SIZE), label, 0, -1, LABEL_FONT_SIZE, Color(1, 1, 1, alpha))
 	var center := rect.position + rect.size * 0.5
 	for direction in range(DIRECTIONS.size()):
 		var is_output := (router_kind == RouterKind.SPLITTER and direction != input_direction) \
@@ -1084,7 +1095,7 @@ func _draw_machine_preview(machine_id: StringName) -> void:
 			draw_rect(cell_rect, BLOCKED_OVERLAY)
 	for port in _world_ports(def, hovered_coordinate, placement_direction):
 		_draw_port(port.coord, port.side, port.role, 0.7)
-	draw_string(ThemeDB.fallback_font, _cell_rect(hovered_coordinate).position + Vector2(3, 13), def.display_name, 0, -1, 10, Color(1, 1, 1, 0.7))
+	draw_string(ThemeDB.fallback_font, _cell_rect(hovered_coordinate).position + Vector2(LABEL_INSET, LABEL_FONT_SIZE), def.display_name, 0, -1, LABEL_FONT_SIZE, Color(1, 1, 1, 0.7))
 
 # --- HUD data (read by the Hud layer) ---
 
@@ -1106,6 +1117,40 @@ func select_build_tool(tool: int) -> void:
 func assign_recipe(machine: Machine, recipe: Recipe) -> void:
 	machine.recipe = recipe
 	machine.progress = 0.0
+
+func hovered_machine() -> Machine:
+	var cell: Cell = cells.get(hovered_coordinate)
+	if cell != null and cell.kind == CellKind.MACHINE:
+		return cell.machine
+	return null
+
+# display-ready breakdown of a machine's slots for the Hud inspector:
+# { title, inputs:[{item, have, need}], outputs:[{item, have, need}], progress }
+func machine_inspector(machine: Machine) -> Dictionary:
+	var def: MachineDef = machine.definition
+	var info := { "title": _machine_label(machine), "inputs": [], "outputs": [], "progress": 0.0 }
+	match def.kind:
+		MachineDef.Kind.SOURCE:
+			info.outputs.append({ "item": def.source_item, "have": machine.stored, "need": 0 })
+		MachineDef.Kind.SHUTTLE:
+			info.inputs.append({ "item": &"robot", "have": Run.shuttle_robots.size(), "need": 0 })
+		MachineDef.Kind.STORAGE:
+			info.inputs.append({ "item": def.storage_item, "have": 0, "need": 0 })
+			info.outputs.append({ "item": def.storage_item, "have": build_ingots, "need": 0 })
+		MachineDef.Kind.CRAFTER:
+			if machine.recipe != null:
+				for input_id in machine.recipe.inputs:
+					info.inputs.append({ "item": input_id, "have": int(machine.inputs.get(input_id, 0)), "need": int(machine.recipe.inputs[input_id]) })
+				info.outputs.append({ "item": machine.recipe.output_id, "have": machine.output_count, "need": 0 })
+				info.progress = clampf(machine.progress / machine.recipe.craft_time, 0.0, 1.0)
+		MachineDef.Kind.ASSEMBLER:
+			for slot in [ItemDef.Slot.LEGS, ItemDef.Slot.TORSO, ItemDef.Slot.HEAD, ItemDef.Slot.ARMS]:
+				var part: ItemDef = machine.inputs.get(slot)
+				info.inputs.append({ "item": part.id if part != null else &"", "have": 1 if part != null else 0, "need": 1 })
+			info.outputs.append({ "item": &"robot", "have": machine.output_count, "need": 0 })
+			if machine.recipe != null:
+				info.progress = clampf(machine.progress / machine.recipe.craft_time, 0.0, 1.0)
+	return info
 
 func scrap_total() -> int:
 	var total := 0

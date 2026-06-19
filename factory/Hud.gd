@@ -20,6 +20,8 @@ var tool_costs := {}     # tool -> int
 var speed_buttons := {}  # speed -> Button
 var last_robot_state := ""
 var machine_panel: Control = null
+var hover_panel: PanelContainer
+var hover_col: VBoxContainer
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -29,6 +31,7 @@ func _ready() -> void:
 	_build_launch_button()
 	_build_controls_hint()
 	_build_shuttle_panel()
+	_build_hover_panel()
 
 func _process(_delta: float) -> void:
 	scrap_label.text = str(factory.scrap_total())
@@ -38,6 +41,7 @@ func _process(_delta: float) -> void:
 	_refresh_launch()
 	_refresh_speed()
 	_refresh_buildables()
+	_refresh_machine_hover()
 
 # --- top status bar ---
 
@@ -346,7 +350,7 @@ func open_machine_panel(machine) -> void:
 	column.add_theme_constant_override("separation", 6)
 	panel.add_child(column)
 	var header := HBoxContainer.new()
-	var title := _make_label("Choose a part to craft")
+	var title := _make_label(factory.machine_inspector(machine).title)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
 	var close := Button.new()
@@ -354,13 +358,24 @@ func open_machine_panel(machine) -> void:
 	close.pressed.connect(_close_machine_panel)
 	header.add_child(close)
 	column.add_child(header)
+	var tabs := TabContainer.new()
+	tabs.custom_minimum_size = Vector2(300, 210)
+	var build_tab := _make_recipe_grid(machine, recipes)
+	build_tab.name = "Build"
+	tabs.add_child(build_tab)
+	var status_tab := _make_inspector_body(factory.machine_inspector(machine))
+	status_tab.name = "Status"
+	tabs.add_child(status_tab)
+	column.add_child(tabs)
+
+func _make_recipe_grid(machine, recipes: Array) -> Control:
 	var grid := GridContainer.new()
 	grid.columns = 3   # 3 variants across, one slot per row
 	grid.add_theme_constant_override("h_separation", 4)
 	grid.add_theme_constant_override("v_separation", 4)
-	column.add_child(grid)
 	for recipe in recipes:
 		grid.add_child(_make_recipe_button(machine, recipe))
+	return grid
 
 func _make_recipe_button(machine, recipe) -> Button:
 	var button := Button.new()
@@ -381,6 +396,87 @@ func _close_machine_panel() -> void:
 	if machine_panel != null:
 		machine_panel.queue_free()
 		machine_panel = null
+
+# --- machine hover inspector (every machine) ---
+
+func _build_hover_panel() -> void:
+	hover_panel = PanelContainer.new()
+	hover_panel.add_theme_stylebox_override("panel", _panel_style(BAR_COLOR))
+	hover_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hover_panel.visible = false
+	add_child(hover_panel)
+	hover_col = VBoxContainer.new()
+	hover_col.add_theme_constant_override("separation", 3)
+	hover_panel.add_child(hover_col)
+
+func _refresh_machine_hover() -> void:
+	# the click-to-configure panel takes over, so hide the floating tooltip while it's open
+	var machine = null if machine_panel != null else factory.hovered_machine()
+	if machine == null:
+		hover_panel.visible = false
+		return
+	var info: Dictionary = factory.machine_inspector(machine)
+	for child in hover_col.get_children():
+		child.free()
+	var title := _make_label(info.title)
+	title.add_theme_font_size_override("font_size", 12)
+	hover_col.add_child(title)
+	hover_col.add_child(_make_inspector_body(info))
+	hover_panel.visible = true
+	var spot := get_viewport().get_mouse_position() + Vector2(18, 18)
+	var bounds := get_viewport_rect().size - hover_panel.size - Vector2(4, 4)
+	hover_panel.position = Vector2(minf(spot.x, bounds.x), minf(spot.y, bounds.y))
+
+# inputs | center animation space | outputs -- shared by the hover tooltip and the crafter Status tab
+func _make_inspector_body(info: Dictionary) -> Control:
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 8)
+	body.add_child(_make_slot_column(info.inputs))
+	body.add_child(_make_anim_space(info.progress))
+	body.add_child(_make_slot_column(info.outputs))
+	return body
+
+func _make_slot_column(entries: Array) -> Control:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	if entries.is_empty():
+		col.add_child(_make_label("—"))
+		return col
+	for entry in entries:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 3)
+		row.add_child(_make_slot_icon(entry.item))
+		var qty := _make_label(("%d/%d" % [entry.have, entry.need]) if entry.need > 0 else ("x%d" % entry.have))
+		qty.add_theme_font_size_override("font_size", 11)
+		row.add_child(qty)
+		col.add_child(row)
+	return col
+
+func _make_slot_icon(item_id: StringName) -> Control:
+	if item_id == &"" or Database.item(item_id) == null:
+		var empty := Panel.new()   # an unfilled slot
+		empty.custom_minimum_size = Vector2(18, 18)
+		return empty
+	var chip := _make_item_chip(item_id)
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return chip
+
+func _make_anim_space(progress: float) -> Control:
+	# placeholder for the machine's working animation; the bar shows craft progress for now
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	var box := Panel.new()
+	box.custom_minimum_size = Vector2(40, 34)
+	box.add_theme_stylebox_override("panel", _icon_style(Color(0.08, 0.08, 0.10)))
+	col.add_child(box)
+	var bar := ProgressBar.new()
+	bar.custom_minimum_size = Vector2(40, 6)
+	bar.min_value = 0.0
+	bar.max_value = 1.0
+	bar.value = progress
+	bar.show_percentage = false
+	col.add_child(bar)
+	return col
 
 # --- placeholder graphics helpers ---
 
