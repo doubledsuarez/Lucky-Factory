@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://b2ax5crmmkmsf"
+
+[deps]
+
+files=["res://tech_nodes.id.translation", "res://tech_nodes.display.translation", "res://tech_nodes.tree.translation", "res://tech_nodes.en.translation", "res://tech_nodes.en.translation"]
+
+source_file="res://tech_nodes.csv"
+dest_files=["res://tech_nodes.id.translation", "res://tech_nodes.display.translation", "res://tech_nodes.tree.translation", "res://tech_nodes.en.translation", "res://tech_nodes.en.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

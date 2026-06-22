@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Lucky Factory"
-run/main_scene="res://factory/Factory.tscn"
+run/main_scene="res://ui/MainMenu.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://assets/icon.svg"
 
@@ -20,6 +20,9 @@ config/icon="res://assets/icon.svg"
 Sim="*res://autoload/Sim.gd"
 Database="*res://autoload/Database.gd"
 Run="*res://autoload/Run.gd"
+SaveManager="*res://autoload/SaveManager.gd"
+GameManager="*res://autoload/GameManager.gd"
+UserSettings="*res://autoload/UserSettings.gd"
 
 [display]
 

@@ -91,11 +91,19 @@ var pan_drag_distance := 0.0
 
 var build_time_left := WAVE_BUILD_TIME
 var launch_armed := false
+var current_wave := 1
+var played_seconds := 0.0
+var pause_menu: PauseMenu = null
 
 func _ready() -> void:
 	_load_belt_frames()
-	_create_machine(depo_coordinate, &"depo", 0)
-	_create_machine(shuttle_coordinate, &"shuttle", 0)
+	var snapshot := GameManager.take_pending_load()
+	if snapshot.is_empty():
+		_create_machine(depo_coordinate, &"depo", 0)
+		_create_machine(shuttle_coordinate, &"shuttle", 0)
+		autosave()   # stamp the new slot with its name right away
+	else:
+		restore_state(snapshot)
 	camera.position = Vector2(GRID_COLUMNS, GRID_ROWS) * CELL_SIZE * 0.5  # center on the floor
 	camera.zoom = Vector2(DEFAULT_ZOOM, DEFAULT_ZOOM)
 	_clamp_camera()
@@ -110,6 +118,7 @@ func _load_belt_frames() -> void:
 		index += 1
 
 func _process(delta: float) -> void:
+	played_seconds += delta   # real time, for the save's total-played readout
 	var scaled_delta := delta * Sim.speed
 	belt_animation_time += scaled_delta
 	build_time_left = maxf(0.0, build_time_left - scaled_delta)
@@ -524,18 +533,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.button_mask & MOUSE_BUTTON_MASK_LEFT and selected_tool == Tool.BELT:
 			_try_place_belt(_world_to_cell(get_global_mouse_position()))
 	elif event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_B: selected_tool = Tool.BELT
-			KEY_F: selected_tool = Tool.FORGE
-			KEY_K: selected_tool = Tool.BANK
-			KEY_C: selected_tool = Tool.CRAFTER
-			KEY_A: selected_tool = Tool.ASSEMBLER
-			KEY_S: selected_tool = Tool.SPLITTER
-			KEY_M: selected_tool = Tool.MERGER
-			KEY_R: placement_direction = (placement_direction + 1) % DIRECTIONS.size()
-			KEY_1: Sim.speed = 0.5
-			KEY_2: Sim.speed = 1.0
-			KEY_3: Sim.speed = 2.0
+		if event.is_action_pressed("build_belt"): selected_tool = Tool.BELT
+		elif event.is_action_pressed("build_forge"): selected_tool = Tool.FORGE
+		elif event.is_action_pressed("build_bank"): selected_tool = Tool.BANK
+		elif event.is_action_pressed("build_crafter"): selected_tool = Tool.CRAFTER
+		elif event.is_action_pressed("build_assembler"): selected_tool = Tool.ASSEMBLER
+		elif event.is_action_pressed("build_splitter"): selected_tool = Tool.SPLITTER
+		elif event.is_action_pressed("build_merger"): selected_tool = Tool.MERGER
+		elif event.is_action_pressed("rotate"): placement_direction = (placement_direction + 1) % DIRECTIONS.size()
+		elif event.is_action_pressed("speed_slow"): Sim.speed = 0.5
+		elif event.is_action_pressed("speed_normal"): Sim.speed = 1.0
+		elif event.is_action_pressed("speed_fast"): Sim.speed = 2.0
+		elif event.is_action_pressed("pause"): _open_pause_menu()
 
 func _place_at(coordinate: Vector2i) -> void:
 	if selected_tool == Tool.BELT:
@@ -1196,3 +1205,191 @@ func confirm_launch() -> void:
 
 func disarm_launch() -> void:
 	launch_armed = false
+
+# call at the start of a new wave to checkpoint the run to the active slot
+func autosave() -> void:
+	GameManager.save_snapshot(capture_state())
+
+# --- pause menu ---
+
+func _open_pause_menu() -> void:
+	if pause_menu != null:
+		return
+	pause_menu = PauseMenu.new()
+	pause_menu.resume_requested.connect(_close_pause_menu)
+	pause_menu.save_requested.connect(func(): GameManager.save_snapshot(capture_state()))
+	pause_menu.settings_requested.connect(func(): $HudLayer.add_child(SettingsPanel.new()))
+	pause_menu.exit_requested.connect(_on_pause_exit)
+	$HudLayer.add_child(pause_menu)
+	get_tree().paused = true
+
+func _close_pause_menu() -> void:
+	if pause_menu != null:
+		pause_menu.queue_free()
+		pause_menu = null
+	get_tree().paused = false
+
+func _on_pause_exit() -> void:
+	_close_pause_menu()
+	GameManager.to_menu()
+
+# --- save / restore (full mid-round snapshot) ---
+
+func capture_state() -> Dictionary:
+	var data := {
+		"name": GameManager.current_save_name,
+		"wave": current_wave,
+		"played_seconds": played_seconds,
+		"build_ingots": build_ingots,
+		"build_time_left": build_time_left,
+		"speed": Sim.speed,
+		"shuttle_robots": [],
+		"cells": [],
+	}
+	for loadout in Run.shuttle_robots:
+		data["shuttle_robots"].append(_capture_loadout(loadout))
+	for coordinate in cells:
+		var cell: Cell = cells[coordinate]
+		if cell.kind == CellKind.MACHINE and cell.machine_origin != coordinate:
+			continue  # store each machine once, at its origin
+		data["cells"].append(_capture_cell(coordinate, cell))
+	return data
+
+func _capture_cell(coordinate: Vector2i, cell: Cell) -> Dictionary:
+	var entry := { "x": coordinate.x, "y": coordinate.y }
+	match cell.kind:
+		CellKind.BELT:
+			entry["kind"] = "belt"
+			entry["in"] = cell.input_direction
+			entry["out"] = cell.output_direction
+			entry["item"] = _capture_item(cell.item)
+		CellKind.ROUTER:
+			entry["kind"] = "router"
+			entry["router"] = cell.router_kind
+			entry["in"] = cell.input_direction
+			entry["out"] = cell.output_direction
+			entry["rr"] = cell.round_robin_index
+			entry["item"] = _capture_item(cell.item)
+		CellKind.MACHINE:
+			var machine := cell.machine
+			entry["kind"] = "machine"
+			entry["id"] = String(machine.definition.id)
+			entry["orient"] = machine.orientation
+			entry["recipe"] = String(machine.recipe.output_id) if machine.recipe != null else ""
+			entry["stored"] = machine.stored
+			entry["progress"] = machine.progress
+			entry["output_count"] = machine.output_count
+			entry["output_item"] = String(machine.output_item.id) if machine.output_item != null else ""
+			entry["output_loadout"] = _capture_loadout(machine.output_loadout)
+			entry["inputs"] = _capture_inputs(machine)
+	return entry
+
+func _capture_item(item) -> Dictionary:
+	if item == null:
+		return {}
+	return { "id": String(item.definition.id), "offset": item.offset, "loadout": _capture_loadout(item.loadout) }
+
+func _capture_loadout(loadout) -> Array:
+	if loadout == null:
+		return []
+	return [String(loadout.legs.id), String(loadout.torso.id), String(loadout.head.id), String(loadout.arms.id)]
+
+func _capture_inputs(machine) -> Dictionary:
+	var result := {}
+	if machine.definition.kind == MachineDef.Kind.ASSEMBLER:
+		for slot in machine.inputs:
+			result[str(slot)] = String(machine.inputs[slot].id)
+	else:
+		for input_id in machine.inputs:
+			result[String(input_id)] = machine.inputs[input_id]
+	return result
+
+func restore_state(data: Dictionary) -> void:
+	cells.clear()
+	GameManager.current_save_name = data.get("name", "")
+	current_wave = int(data.get("wave", 1))
+	played_seconds = float(data.get("played_seconds", 0.0))
+	build_ingots = int(data.get("build_ingots", STARTING_BUILD_INGOTS))
+	build_time_left = float(data.get("build_time_left", WAVE_BUILD_TIME))
+	Sim.speed = float(data.get("speed", 1.0))
+	Run.shuttle_robots.clear()
+	for arr in data.get("shuttle_robots", []):
+		var loadout = _loadout_from_array(arr)
+		if loadout != null:
+			Run.shuttle_robots.append(loadout)
+	for entry in data.get("cells", []):
+		if entry.get("kind", "") == "machine":
+			_restore_machine(entry)          # machines first so their cells exist
+	for entry in data.get("cells", []):
+		var kind: String = entry.get("kind", "")
+		if kind == "belt" or kind == "router":
+			_restore_track(entry, kind)
+
+func _restore_machine(entry: Dictionary) -> void:
+	var origin := Vector2i(int(entry["x"]), int(entry["y"]))
+	var machine_id := StringName(entry["id"])
+	var recipe_override := _recipe_for(machine_id, StringName(entry.get("recipe", "")))
+	if not _create_machine(origin, machine_id, int(entry.get("orient", 0)), recipe_override):
+		return
+	var machine: Machine = cells[origin].machine
+	machine.stored = int(entry.get("stored", 0))
+	machine.progress = float(entry.get("progress", 0.0))
+	machine.output_count = int(entry.get("output_count", 0))
+	var output_id := StringName(entry.get("output_item", ""))
+	machine.output_item = Database.item(output_id) if output_id != &"" else null
+	machine.output_loadout = _loadout_from_array(entry.get("output_loadout", []))
+	_restore_inputs(machine, entry.get("inputs", {}))
+
+func _recipe_for(machine_id: StringName, output_id: StringName) -> Recipe:
+	if output_id == &"":
+		return null
+	var def: MachineDef = Database.machine(machine_id)
+	for recipe in def.recipes:
+		if recipe.output_id == output_id:
+			return recipe
+	if def.recipe != null and def.recipe.output_id == output_id:
+		return def.recipe
+	return null
+
+func _restore_inputs(machine, inputs: Dictionary) -> void:
+	if machine.definition.kind == MachineDef.Kind.ASSEMBLER:
+		for slot_key in inputs:
+			machine.inputs[int(slot_key)] = Database.item(StringName(inputs[slot_key]))
+	else:
+		for id_key in inputs:
+			machine.inputs[StringName(id_key)] = int(inputs[id_key])
+
+func _restore_track(entry: Dictionary, kind: String) -> void:
+	var coordinate := Vector2i(int(entry["x"]), int(entry["y"]))
+	var cell := Cell.new()
+	cell.input_direction = int(entry.get("in", 0))
+	cell.output_direction = int(entry.get("out", 0))
+	cell.item = _item_from_dict(entry.get("item", {}))
+	if kind == "router":
+		cell.kind = CellKind.ROUTER
+		cell.router_kind = int(entry.get("router", RouterKind.SPLITTER))
+		cell.round_robin_index = int(entry.get("rr", 0))
+	else:
+		cell.kind = CellKind.BELT
+	cells[coordinate] = cell
+
+func _item_from_dict(d: Dictionary):
+	if d.is_empty():
+		return null
+	var definition: ItemDef = Database.item(StringName(d.get("id", "")))
+	if definition == null:
+		return null
+	var item := Item.new(definition)
+	item.offset = float(d.get("offset", 0.0))
+	item.loadout = _loadout_from_array(d.get("loadout", []))
+	return item
+
+func _loadout_from_array(arr):
+	if arr == null or arr.size() < 4:
+		return null
+	var loadout := RobotLoadout.new()
+	loadout.legs = Database.item(StringName(arr[0]))
+	loadout.torso = Database.item(StringName(arr[1]))
+	loadout.head = Database.item(StringName(arr[2]))
+	loadout.arms = Database.item(StringName(arr[3]))
+	return loadout
