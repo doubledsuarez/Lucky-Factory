@@ -5,12 +5,14 @@ const MAIN_MENU := "res://ui/MainMenu.tscn"
 const FACTORY := "res://factory/Factory.tscn"
 
 var current_slot: int = -1
+var current_save_name: String = ""
 var _pending_load: Dictionary = {}   # factory snapshot to restore on the next factory load
 
-func new_game(slot: int) -> void:
+func new_game(slot: int, save_name: String) -> void:
 	current_slot = slot
+	current_save_name = save_name
 	_pending_load = {}
-	SaveManager.delete_slot(slot)   # start the slot fresh; first autosave writes wave 1
+	SaveManager.delete_slot(slot)   # start the slot fresh; the factory autosaves wave 1 on load
 	get_tree().change_scene_to_file(FACTORY)
 
 func load_game(slot: int) -> void:
@@ -18,7 +20,7 @@ func load_game(slot: int) -> void:
 	_pending_load = SaveManager.load_slot(slot)
 	get_tree().change_scene_to_file(FACTORY)
 
-# the factory calls this in _ready; empty dict means start a fresh floor
+# empty dictionary means start a fresh floor
 func take_pending_load() -> Dictionary:
 	var data := _pending_load
 	_pending_load = {}

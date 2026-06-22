@@ -92,6 +92,7 @@ var pan_drag_distance := 0.0
 var build_time_left := WAVE_BUILD_TIME
 var launch_armed := false
 var current_wave := 1
+var played_seconds := 0.0
 var pause_menu: PauseMenu = null
 
 func _ready() -> void:
@@ -100,6 +101,7 @@ func _ready() -> void:
 	if snapshot.is_empty():
 		_create_machine(depo_coordinate, &"depo", 0)
 		_create_machine(shuttle_coordinate, &"shuttle", 0)
+		autosave()   # stamp the new slot with its name right away
 	else:
 		restore_state(snapshot)
 	camera.position = Vector2(GRID_COLUMNS, GRID_ROWS) * CELL_SIZE * 0.5  # center on the floor
@@ -116,6 +118,7 @@ func _load_belt_frames() -> void:
 		index += 1
 
 func _process(delta: float) -> void:
+	played_seconds += delta   # real time, for the save's total-played readout
 	var scaled_delta := delta * Sim.speed
 	belt_animation_time += scaled_delta
 	build_time_left = maxf(0.0, build_time_left - scaled_delta)
@@ -530,19 +533,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.button_mask & MOUSE_BUTTON_MASK_LEFT and selected_tool == Tool.BELT:
 			_try_place_belt(_world_to_cell(get_global_mouse_position()))
 	elif event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_B: selected_tool = Tool.BELT
-			KEY_F: selected_tool = Tool.FORGE
-			KEY_K: selected_tool = Tool.BANK
-			KEY_C: selected_tool = Tool.CRAFTER
-			KEY_A: selected_tool = Tool.ASSEMBLER
-			KEY_S: selected_tool = Tool.SPLITTER
-			KEY_M: selected_tool = Tool.MERGER
-			KEY_R: placement_direction = (placement_direction + 1) % DIRECTIONS.size()
-			KEY_1: Sim.speed = 0.5
-			KEY_2: Sim.speed = 1.0
-			KEY_3: Sim.speed = 2.0
-			KEY_ESCAPE: _open_pause_menu()
+		if event.is_action_pressed("build_belt"): selected_tool = Tool.BELT
+		elif event.is_action_pressed("build_forge"): selected_tool = Tool.FORGE
+		elif event.is_action_pressed("build_bank"): selected_tool = Tool.BANK
+		elif event.is_action_pressed("build_crafter"): selected_tool = Tool.CRAFTER
+		elif event.is_action_pressed("build_assembler"): selected_tool = Tool.ASSEMBLER
+		elif event.is_action_pressed("build_splitter"): selected_tool = Tool.SPLITTER
+		elif event.is_action_pressed("build_merger"): selected_tool = Tool.MERGER
+		elif event.is_action_pressed("rotate"): placement_direction = (placement_direction + 1) % DIRECTIONS.size()
+		elif event.is_action_pressed("speed_slow"): Sim.speed = 0.5
+		elif event.is_action_pressed("speed_normal"): Sim.speed = 1.0
+		elif event.is_action_pressed("speed_fast"): Sim.speed = 2.0
+		elif event.is_action_pressed("pause"): _open_pause_menu()
 
 func _place_at(coordinate: Vector2i) -> void:
 	if selected_tool == Tool.BELT:
@@ -1235,7 +1237,9 @@ func _on_pause_exit() -> void:
 
 func capture_state() -> Dictionary:
 	var data := {
+		"name": GameManager.current_save_name,
 		"wave": current_wave,
+		"played_seconds": played_seconds,
 		"build_ingots": build_ingots,
 		"build_time_left": build_time_left,
 		"speed": Sim.speed,
@@ -1302,7 +1306,9 @@ func _capture_inputs(machine) -> Dictionary:
 
 func restore_state(data: Dictionary) -> void:
 	cells.clear()
+	GameManager.current_save_name = data.get("name", "")
 	current_wave = int(data.get("wave", 1))
+	played_seconds = float(data.get("played_seconds", 0.0))
 	build_ingots = int(data.get("build_ingots", STARTING_BUILD_INGOTS))
 	build_time_left = float(data.get("build_time_left", WAVE_BUILD_TIME))
 	Sim.speed = float(data.get("speed", 1.0))

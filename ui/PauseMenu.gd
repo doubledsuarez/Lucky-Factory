@@ -1,5 +1,5 @@
 class_name PauseMenu extends Control
-## In-factory pause overlay. Emits intents; the factory wires them up.
+## In-factory pause overlay. Its buttons fire signals the factory hooks into.
 
 signal resume_requested
 signal save_requested

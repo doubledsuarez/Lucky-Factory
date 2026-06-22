@@ -22,6 +22,7 @@ Database="*res://autoload/Database.gd"
 Run="*res://autoload/Run.gd"
 SaveManager="*res://autoload/SaveManager.gd"
 GameManager="*res://autoload/GameManager.gd"
+UserSettings="*res://autoload/UserSettings.gd"
 
 [display]
 

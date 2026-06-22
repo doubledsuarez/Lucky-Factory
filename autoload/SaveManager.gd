@@ -39,9 +39,23 @@ func delete_slot(slot: int) -> void:
 	if slot_exists(slot):
 		DirAccess.remove_absolute(slot_path(slot))
 
-# short one-line description for the slot button on the menu
-func slot_summary(slot: int) -> String:
+# structured details for the load screen; "exists" false means an empty slot
+func slot_info(slot: int) -> Dictionary:
 	var data := load_slot(slot)
 	if data.is_empty():
-		return "Empty"
-	return "Wave %d   %s" % [int(data.get("wave", 1)), data.get("saved_at", "")]
+		return { "exists": false }
+	return {
+		"exists": true,
+		"name": data.get("name", "Save %d" % (slot + 1)),
+		"wave": int(data.get("wave", 1)),
+		"played": float(data.get("played_seconds", 0.0)),
+		"saved_at": data.get("saved_at", ""),
+	}
+
+func format_played(seconds: float) -> String:
+	var total := int(seconds)
+	var hours := total / 3600
+	var minutes := (total % 3600) / 60
+	if hours > 0:
+		return "%dh %dm" % [hours, minutes]
+	return "%dm" % minutes
