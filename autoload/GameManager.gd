@@ -4,9 +4,20 @@ extends Node
 const MAIN_MENU := "res://ui/MainMenu.tscn"
 const FACTORY := "res://factory/Factory.tscn"
 
+signal battle_resolved(won: bool, card_count: int)
+
 var current_slot: int = -1
 var current_save_name: String = ""
 var _pending_load: Dictionary = {}   # factory snapshot to restore on the next factory load
+
+# the battle phase calls this with its result; the factory reacts to battle_resolved
+func on_battle_done(result: BattleResult) -> void:
+	if not result.won:
+		battle_resolved.emit(false, 0)
+		return
+	var underdog := result.sent_power() < result.enemy_power()          # won against the odds
+	var dominant := result.survivor_power() > result.sent_power() * 0.5  # kept over half our power
+	battle_resolved.emit(true, 3 if (underdog or dominant) else 2)
 
 func new_game(slot: int, save_name: String) -> void:
 	current_slot = slot

@@ -15,6 +15,7 @@ const BINDS := [
 	{ "action": "build_splitter", "label": "Build: Splitter", "key": KEY_S },
 	{ "action": "build_merger", "label": "Build: Merger", "key": KEY_M },
 	{ "action": "rotate", "label": "Rotate piece", "key": KEY_R },
+	{ "action": "tech_tree", "label": "Tech Tree", "key": KEY_T },
 	{ "action": "speed_slow", "label": "Speed 0.5x", "key": KEY_1 },
 	{ "action": "speed_normal", "label": "Speed 1x", "key": KEY_2 },
 	{ "action": "speed_fast", "label": "Speed 2x", "key": KEY_3 },

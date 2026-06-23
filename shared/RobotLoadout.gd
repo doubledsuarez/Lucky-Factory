@@ -28,3 +28,7 @@ func attack_range() -> float:
 
 func attack_speed() -> float:
 	return arms.attack_speed
+
+# a single combat-strength number, used to compare armies on the reward screen (tunable)
+func power() -> float:
+	return float(total_armor()) + float(damage()) * maxf(attack_speed(), 0.1)
