@@ -1,0 +1,18 @@
+[gd_scene format=3 uid="uid://b3hbgvuu4cxsj"]
+
+[ext_resource type="Script" uid="uid://vhoq8lh4bcr0" path="res://factory/Factory.gd" id="1"]
+[ext_resource type="Script" uid="uid://dtvif57wxlv3y" path="res://factory/Hud.gd" id="2"]
+
+[node name="Factory" type="Node2D" unique_id=515534834]
+script = ExtResource("1")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=1155093707]
+position = Vector2(640, 352)
+
+[node name="HudLayer" type="CanvasLayer" parent="." unique_id=166781242]
+
+[node name="Hud" type="Control" parent="HudLayer" unique_id=2036760649]
+layout_mode = 3
+anchors_preset = 0
+mouse_filter = 2
+script = ExtResource("2")

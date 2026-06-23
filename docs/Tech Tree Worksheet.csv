@@ -1,0 +1,31 @@
+category,id,display_name,tree,parents,starts_unlocked
+material,scrap,Scrap,Main,,TRUE
+material,scrap_ingot,Scrap Ingot,Main,t1_forge,TRUE
+output,robot,Robot,-,,TRUE
+machine,scrap_depo,Scrap Depo,-,,TRUE
+machine,shuttle,Shuttle,-,,TRUE
+tool,t1_belt,T1 Belt,Main,,TRUE
+tool,splitter,Splitter,Main,,FALSE
+tool,merger,Merger,Main,,FALSE
+machine,t1_forge,T1 Forge,Main,scrap,TRUE
+machine,t1_crafter,T1 Crafter,Main,scrap_ingot,TRUE
+machine,t1_assembler,T1 Assembler,Main,t1_crafter,TRUE
+machine,storage,Storage,Main,scrap_ingot,TRUE
+part,scrap_boxer_head,Scrap Boxer Head,Main,t1_assembler,TRUE
+part,scrap_warrior_head,Scrap Warrior Head,Main,t1_assembler,FALSE
+part,scrap_hunter_head,Scrap Hunter Head,Main,t1_assembler,FALSE
+part,scrap_boxer_torso,Scrap Boxer Torso,Main,scrap_boxer_head,TRUE
+part,scrap_boxer_legs,Scrap Boxer Legs,Main,scrap_boxer_head,TRUE
+part,scrap_boxer_fists,Scrap Boxer Fists,Main,scrap_boxer_head,TRUE
+part,scrap_warrior_torso,Scrap Warrior Torso,Main,scrap_warrior_head,FALSE
+part,scrap_warrior_legs,Scrap Warrior Legs,Main,scrap_warrior_head,FALSE
+part,scrap_warrior_spear,Scrap Warrior Spear,Main,scrap_warrior_head,FALSE
+part,scrap_hunter_torso,Scrap Hunter Torso,Main,scrap_hunter_head,FALSE
+part,scrap_hunter_legs,Scrap Hunter Legs,Main,scrap_hunter_head,FALSE
+part,scrap_hunter_rifle,Scrap Hunter Rifle,Main,scrap_hunter_head,FALSE
+buff,1000_scrap_0,1000 Scrap,Main,scrap_boxer_head,FALSE
+buff,1000_scrap_1,1000 Scrap,Main,scrap_warrior_head,FALSE
+buff,1000_scrap_2,1000 Scrap,Main,scrap_hunter_head,FALSE
+buff,extra_time_0,Extra Time,Main,1000_scrap_0,FALSE
+buff,extra_time_1,Extra Time,Main,1000_scrap_1,FALSE
+buff,extra_time_2,Extra Time,Main,1000_scrap_2,FALSE

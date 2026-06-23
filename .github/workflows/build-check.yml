@@ -1,0 +1,47 @@
+name: Build Check
+
+# Validates that the Godot project imports and boots without script/parse errors.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  godot-check:
+    runs-on: ubuntu-latest
+    env:
+      # keep this matching the version in project.godot / what we run locally
+      GODOT_VERSION: 4.6.3-stable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Godot binary
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: godot
+          key: godot-${{ env.GODOT_VERSION }}-linux
+
+      - name: Download Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          url="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          curl -fL -o godot.zip "$url"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}_linux.x86_64" godot
+          chmod +x godot
+
+      - name: Import project
+        run: ./godot --headless --import 2>&1 | tee import.log || true
+
+      - name: Boot project
+        run: ./godot --headless --quit-after 5 2>&1 | tee run.log || true
+
+      - name: Fail on script errors
+        run: |
+          if grep -nE "SCRIPT ERROR|Parse Error|Failed to load script" import.log run.log; then
+            echo "::error::Godot reported script or parse errors"
+            exit 1
+          fi
+          echo "No script or parse errors detected."

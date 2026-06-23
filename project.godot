@@ -11,8 +11,31 @@ config_version=5
 [application]
 
 config/name="Lucky Factory"
+run/main_scene="res://ui/MainMenu.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
-config/icon="res://icon.svg"
+config/icon="res://assets/icon.svg"
+
+[autoload]
+
+Sim="*res://autoload/Sim.gd"
+Database="*res://autoload/Database.gd"
+Run="*res://autoload/Run.gd"
+SaveManager="*res://autoload/SaveManager.gd"
+GameManager="*res://autoload/GameManager.gd"
+UserSettings="*res://autoload/UserSettings.gd"
+Unlocks="*res://autoload/Unlocks.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/mode=2
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[gui]
+
+theme/custom="res://ui/theme.tres"
 
 [physics]
 
@@ -20,4 +43,6 @@ config/icon="res://icon.svg"
 
 [rendering]
 
+textures/canvas_textures/default_texture_filter=0
 rendering_device/driver.windows="d3d12"
+renderer/rendering_method="mobile"
