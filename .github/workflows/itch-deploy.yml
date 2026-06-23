@@ -1,0 +1,74 @@
+name: Deploy to itch.io
+
+# Exports the Web build and pushes it to itch.io whenever main updates.
+#
+# Set these in the repo under Settings > Secrets and variables > Actions:
+#   Secret   BUTLER_API_KEY  - itch.io API key from https://itch.io/user/settings/api-keys
+#   Variable ITCH_USER       - your itch.io username
+#   Variable ITCH_GAME       - the game's URL slug on itch.io
+#
+# The job stays dormant until ITCH_USER and ITCH_GAME are set, so merging this
+# in tonight won't break anything before the credentials exist.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy-web:
+    runs-on: ubuntu-latest
+    if: vars.ITCH_USER != '' && vars.ITCH_GAME != ''
+    env:
+      # keep this matching the version in project.godot / what we run locally
+      GODOT_VERSION: 4.6.3-stable
+      ITCH_CHANNEL: html5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Godot binary and export templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            godot
+            ~/.local/share/godot/export_templates
+          key: godot-export-${{ env.GODOT_VERSION }}-linux
+
+      - name: Download Godot and export templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}"
+
+          curl -fL -o godot.zip "${base}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}_linux.x86_64" godot
+          chmod +x godot
+
+          # templates install under a folder named like "4.6.3.stable"
+          templates_version="${GODOT_VERSION/-/.}"
+          templates_dir="$HOME/.local/share/godot/export_templates/${templates_version}"
+          mkdir -p "$templates_dir"
+          curl -fL -o templates.tpz "${base}/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          unzip -q templates.tpz
+          mv templates/* "$templates_dir"
+
+      - name: Export Web build
+        run: |
+          mkdir -p build/web
+          ./godot --headless --import 2>&1 | tee import.log || true
+          ./godot --headless --export-release "Web" build/web/index.html
+          test -f build/web/index.html
+
+      - name: Install butler
+        run: |
+          curl -fL -o butler.zip "https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default"
+          unzip -q butler.zip
+          chmod +x butler
+          ./butler -V
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          ./butler push build/web "${{ vars.ITCH_USER }}/${{ vars.ITCH_GAME }}:${ITCH_CHANNEL}"

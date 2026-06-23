@@ -3,7 +3,7 @@ extends RefCounted
 
 static func register(database) -> void:
 	database.add_item(ItemBuilders.make(&"scrap", "Scrap", ItemDef.Shape.SQUARE, 20))
-	database.add_item(ItemBuilders.make(&"ingot", "Scrap Ingot", ItemDef.Shape.TRAPEZOID, 10))
+	database.add_item(ItemBuilders.make(&"scrap_ingot", "Scrap Ingot", ItemDef.Shape.TRAPEZOID, 10))
 	database.add_item(_robot())
 
 static func _robot() -> ItemDef:

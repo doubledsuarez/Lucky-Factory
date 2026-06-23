@@ -1,0 +1,72 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/PauseMenu.gd" id="1"]
+
+[node name="PauseMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+process_mode = 3
+script = ExtResource("1")
+
+[node name="Dim" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.6)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Menu" type="VBoxContainer" parent="Center"]
+custom_minimum_size = Vector2(260, 0)
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Center/Menu"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "Paused"
+horizontal_alignment = 1
+
+[node name="ResumeButton" type="Button" parent="Center/Menu"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "Resume"
+
+[node name="SaveButton" type="Button" parent="Center/Menu"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "Save Game"
+
+[node name="TechTreeButton" type="Button" parent="Center/Menu"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "Tech Tree"
+
+[node name="SettingsButton" type="Button" parent="Center/Menu"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "Settings"
+
+[node name="ExitButton" type="Button" parent="Center/Menu"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "Exit to Menu"
+
+[connection signal="pressed" from="Center/Menu/ResumeButton" to="." method="_on_resume_pressed"]
+[connection signal="pressed" from="Center/Menu/SaveButton" to="." method="_on_save_pressed"]
+[connection signal="pressed" from="Center/Menu/TechTreeButton" to="." method="_on_tech_tree_pressed"]
+[connection signal="pressed" from="Center/Menu/SettingsButton" to="." method="_on_settings_pressed"]
+[connection signal="pressed" from="Center/Menu/ExitButton" to="." method="_on_exit_pressed"]

@@ -15,6 +15,7 @@ var manifest_button: Button
 var shuttle_panel: PanelContainer
 var shuttle_list: VBoxContainer
 var launch_button: Button
+var build_row: HBoxContainer
 var tool_buttons := {}   # tool -> Button
 var tool_costs := {}     # tool -> int
 var speed_buttons := {}  # speed -> Button
@@ -58,7 +59,7 @@ func _build_top_bar() -> void:
 	row.add_child(_make_item_chip(&"scrap"))
 	scrap_label = _make_label("0")
 	row.add_child(scrap_label)
-	row.add_child(_make_item_chip(&"ingot"))
+	row.add_child(_make_item_chip(&"scrap_ingot"))
 	ingot_label = _make_label("0")
 	row.add_child(ingot_label)
 	row.add_child(_make_spacer())
@@ -70,6 +71,10 @@ func _build_top_bar() -> void:
 	manifest_button.text = "Robots: 0"
 	manifest_button.pressed.connect(toggle_shuttle_panel)
 	row.add_child(manifest_button)
+	# keep the manifest button clear of the launch square that sits in the top-right corner
+	var launch_reserve := Control.new()
+	launch_reserve.custom_minimum_size = Vector2(150, 0)
+	row.add_child(launch_reserve)
 
 # --- bottom build bar ---
 
@@ -87,11 +92,22 @@ func _build_build_bar() -> void:
 	var bar := PanelContainer.new()
 	bar.add_theme_stylebox_override("panel", _panel_style(BAR_COLOR))
 	center.add_child(bar)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	bar.add_child(row)
+	build_row = HBoxContainer.new()
+	build_row.add_theme_constant_override("separation", 8)
+	bar.add_child(build_row)
+	_populate_build_row()
+
+func _populate_build_row() -> void:
+	for child in build_row.get_children():
+		child.free()
+	tool_buttons.clear()
+	tool_costs.clear()
 	for entry in factory.buildables():
-		row.add_child(_make_build_entry(entry))
+		build_row.add_child(_make_build_entry(entry))
+
+# rebuild the bar so newly unlocked tools appear
+func refresh_build_bar() -> void:
+	_populate_build_row()
 
 # --- launch button (big square, top right) ---
 
@@ -247,7 +263,7 @@ func _make_build_entry(entry: Dictionary) -> Control:
 
 # ingot icon + cost number tucked into the bottom-left corner of a build button
 func _add_cost_badge(button: Button, cost: int) -> void:
-	var icon := _make_item_chip(&"ingot")
+	var icon := _make_item_chip(&"scrap_ingot")
 	icon.custom_minimum_size = Vector2.ZERO
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	icon.anchor_top = 1.0
@@ -331,6 +347,55 @@ func _on_speed_pressed(speed: float) -> void:
 func _on_build_pressed(tool: int) -> void:
 	factory.select_build_tool(tool)
 
+# --- end-of-round upgrade picker ---
+
+func show_upgrade_picker(card_count: int) -> void:
+	var pool: Array = Unlocks.available()
+	if pool.is_empty():
+		return   # nothing left to offer
+	pool.shuffle()
+	var count: int = mini(card_count, pool.size())
+	var overlay := Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style(BAR_COLOR))
+	center.add_child(panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	panel.add_child(column)
+	var title := _make_label("Choose an upgrade")
+	title.add_theme_font_size_override("font_size", 20)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(title)
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 8)
+	column.add_child(cards)
+	for index in range(count):
+		var id: StringName = pool[index]
+		var node: TechNode = Database.tech_node(id)
+		var card := Button.new()
+		card.custom_minimum_size = Vector2(150, 84)
+		card.text = "%s\n(%s)" % [node.display_name, node.category]
+		card.pressed.connect(_on_upgrade_chosen.bind(id, overlay))
+		cards.add_child(card)
+	add_child(overlay)
+	get_tree().paused = true
+
+func _on_upgrade_chosen(id: StringName, overlay: Control) -> void:
+	Unlocks.unlock(id)
+	factory.apply_unlock_effect(id)
+	refresh_build_bar()
+	overlay.queue_free()
+	get_tree().paused = false
+
 # --- machine config panel (opened by clicking a placed machine) ---
 
 func open_machine_panel(machine) -> void:
@@ -374,6 +439,8 @@ func _make_recipe_grid(machine, recipes: Array) -> Control:
 	grid.add_theme_constant_override("h_separation", 4)
 	grid.add_theme_constant_override("v_separation", 4)
 	for recipe in recipes:
+		if not Unlocks.is_unlocked(recipe.output_id):
+			continue   # only show parts that have been unlocked
 		grid.add_child(_make_recipe_button(machine, recipe))
 	return grid
 
@@ -382,7 +449,7 @@ func _make_recipe_button(machine, recipe) -> Button:
 	button.custom_minimum_size = Vector2(124, 40)
 	button.add_theme_font_size_override("font_size", 11)
 	var part: ItemDef = Database.item(recipe.output_id)
-	button.text = "%s\n%d ingots" % [part.display_name, int(recipe.inputs.get(&"ingot", 0))]
+	button.text = "%s\n%d ingots" % [part.display_name, int(recipe.inputs.get(&"scrap_ingot", 0))]
 	if machine.recipe == recipe:
 		button.modulate = Color(0.6, 1.0, 0.6)  # the recipe this machine is already set to
 	button.pressed.connect(_on_recipe_chosen.bind(machine, recipe))

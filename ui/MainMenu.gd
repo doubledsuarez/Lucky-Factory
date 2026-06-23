@@ -1,32 +1,23 @@
 extends Control
 ## Title screen: New Game, Load Game (only when saves exist), Settings, Exit.
+## Layout lives in MainMenu.tscn. The slot picker, name entry, and the live factory
+## backdrop are built here at runtime because they depend on the current saves.
+
+@onready var _preview_mount: Control = $PreviewMount
+@onready var _load_button: Button = $Center/Backdrop/Menu/LoadGameButton
 
 var _overlay: Control = null
 var _manage_mode := false
+var _preview_camera: Camera2D = null
+var _preview_time := 0.0
+var _pan_left := 0.0
+var _pan_right := 0.0
+var _preview_y := 0.0
+var _preview_zoom := 0.6
 
 func _ready() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var bg := ColorRect.new()
-	bg.color = Color(0.08, 0.09, 0.12)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 12)
-	column.custom_minimum_size = Vector2(260, 0)
-	center.add_child(column)
-	var title := Label.new()
-	title.text = "Lucky Factory"
-	title.add_theme_font_size_override("font_size", 40)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(title)
-	column.add_child(_button("New Game", _on_new_game))
-	if SaveManager.any_slot_exists():
-		column.add_child(_button("Load Game", _on_load_game))
-	column.add_child(_button("Settings", _on_settings))
-	column.add_child(_button("Exit to Desktop", _on_exit))
+	_load_button.visible = SaveManager.any_slot_exists()
+	_build_preview_background()
 
 func _button(text: String, handler: Callable) -> Button:
 	var button := Button.new()
@@ -44,13 +35,59 @@ func _on_load_game() -> void:
 
 func _on_settings() -> void:
 	_close_overlay()
-	var settings := SettingsPanel.new()
+	var settings := preload("res://ui/SettingsPanel.tscn").instantiate() as SettingsPanel
 	_overlay = settings
 	add_child(settings)
 	settings.closed.connect(func(): _overlay = null)
 
 func _on_exit() -> void:
 	get_tree().quit()
+
+# render the most recent save as a frozen, wobbling backdrop (purely cosmetic; never saved)
+func _build_preview_background() -> void:
+	var snapshot := SaveManager.most_recent_snapshot()
+	if snapshot.is_empty():
+		return   # no save yet, keep the solid background
+	var container := SubViewportContainer.new()
+	container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	container.stretch = true
+	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_preview_mount.add_child(container)
+	var viewport := SubViewport.new()
+	viewport.handle_input_locally = false
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewport.msaa_2d = Viewport.MSAA_4X   # smooth the rotated edges (preview only)
+	container.add_child(viewport)
+	var factory := preload("res://factory/Factory.tscn").instantiate()
+	factory.preview_mode = true
+	factory.preview_snapshot = snapshot
+	factory.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR   # soften the scaled belt sprites
+	viewport.add_child(factory)
+	_preview_camera = factory.camera
+	# frame the content's height, then set the left/right ends of the slow horizontal sweep
+	var bounds: Rect2 = factory.preview_bounds
+	var view := Vector2(1280, 720)
+	# zoom in enough to show ~70% of the width at once (so there's something to pan across),
+	# but never so far that the content's height stops fitting
+	var zoom_for_height := view.y / (bounds.size.y + 80.0)
+	var zoom_for_pan := view.x / maxf(bounds.size.x * 0.7, 1.0)
+	_preview_zoom = clampf(minf(zoom_for_height, zoom_for_pan), 0.5, 1.1)
+	_preview_y = bounds.get_center().y
+	var visible_width := view.x / _preview_zoom
+	if bounds.size.x <= visible_width:
+		_pan_left = bounds.get_center().x
+		_pan_right = _pan_left
+	else:
+		_pan_left = bounds.position.x + visible_width * 0.5
+		_pan_right = bounds.end.x - visible_width * 0.5
+
+func _process(delta: float) -> void:
+	if _preview_camera == null:
+		return
+	_preview_time += delta
+	var sweep := (sin(_preview_time * 0.2) + 1.0) * 0.5   # 0..1, slow left to right to left
+	_preview_camera.zoom = Vector2(_preview_zoom, _preview_zoom)
+	_preview_camera.position = Vector2(lerpf(_pan_left, _pan_right, sweep), _preview_y)
 
 func _open_slots(mode: String) -> void:
 	_close_overlay()

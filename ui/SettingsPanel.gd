@@ -1,50 +1,24 @@
 class_name SettingsPanel extends Control
 ## Reusable settings overlay with Sound, Video, and Key Binds tabs. Emits closed when dismissed.
+## Layout lives in SettingsPanel.tscn; the rows inside each tab are filled from UserSettings here.
 
 signal closed
+
+@onready var _sound_box: VBoxContainer = $Center/Panel/Column/Tabs/Sound
+@onready var _video_box: VBoxContainer = $Center/Panel/Column/Tabs/Video
+@onready var _bind_list: VBoxContainer = get_node("Center/Panel/Column/Tabs/Key Binds/BindList")
 
 var _rebinding_action := ""
 var _rebind_button: Button = null
 
 func _ready() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	process_mode = Node.PROCESS_MODE_ALWAYS   # usable while the game is paused
-	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.6)
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(dim)
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-	var panel := PanelContainer.new()
-	center.add_child(panel)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 10)
-	panel.add_child(column)
-	var title := Label.new()
-	title.text = "Settings"
-	title.add_theme_font_size_override("font_size", 22)
-	column.add_child(title)
-	var tabs := TabContainer.new()
-	tabs.custom_minimum_size = Vector2(420, 320)
-	tabs.add_child(_sound_tab())
-	tabs.add_child(_video_tab())
-	tabs.add_child(_keybinds_tab())
-	column.add_child(tabs)
-	var back := Button.new()
-	back.text = "Back"
-	back.pressed.connect(_on_back)
-	column.add_child(back)
+	for bus in UserSettings.BUSES:
+		_sound_box.add_child(_volume_row(bus))
+	_populate_video()
+	for bind in UserSettings.BINDS:
+		_bind_list.add_child(_bind_row(bind))
 
 # --- Sound ---
-
-func _sound_tab() -> Control:
-	var box := VBoxContainer.new()
-	box.name = "Sound"
-	box.add_theme_constant_override("separation", 10)
-	for bus in UserSettings.BUSES:
-		box.add_child(_volume_row(bus))
-	return box
 
 func _volume_row(bus: String) -> Control:
 	var row := VBoxContainer.new()
@@ -63,11 +37,8 @@ func _volume_row(bus: String) -> Control:
 
 # --- Video ---
 
-func _video_tab() -> Control:
-	var box := VBoxContainer.new()
-	box.name = "Video"
-	box.add_theme_constant_override("separation", 10)
-	box.add_child(_label("Resolution"))
+func _populate_video() -> void:
+	_video_box.add_child(_label("Resolution"))
 	var resolutions := OptionButton.new()
 	var current := UserSettings.resolution()
 	for index in range(UserSettings.RESOLUTIONS.size()):
@@ -77,39 +48,30 @@ func _video_tab() -> Control:
 			resolutions.select(index)
 	resolutions.item_selected.connect(func(index): UserSettings.set_resolution(UserSettings.RESOLUTIONS[index]))
 	resolutions.disabled = UserSettings.is_fullscreen()
-	box.add_child(resolutions)
+	_video_box.add_child(resolutions)
 	var fullscreen := CheckButton.new()
 	fullscreen.text = "Fullscreen"
 	fullscreen.button_pressed = UserSettings.is_fullscreen()
 	fullscreen.toggled.connect(func(on):
 		UserSettings.set_fullscreen(on)
 		resolutions.disabled = on)
-	box.add_child(fullscreen)
-	return box
+	_video_box.add_child(fullscreen)
 
 # --- Key Binds ---
 
-func _keybinds_tab() -> Control:
-	var scroll := ScrollContainer.new()
-	scroll.name = "Key Binds"
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 4)
-	for bind in UserSettings.BINDS:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
-		var label := Label.new()
-		label.text = bind.label
-		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(label)
-		var button := Button.new()
-		button.custom_minimum_size = Vector2(120, 0)
-		button.text = OS.get_keycode_string(UserSettings.key_of(bind.action))
-		button.pressed.connect(_begin_rebind.bind(bind.action, button))
-		row.add_child(button)
-		box.add_child(row)
-	scroll.add_child(box)
-	return scroll
+func _bind_row(bind) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var label := Label.new()
+	label.text = bind.label
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(label)
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(120, 0)
+	button.text = OS.get_keycode_string(UserSettings.key_of(bind.action))
+	button.pressed.connect(_begin_rebind.bind(bind.action, button))
+	row.add_child(button)
+	return row
 
 func _begin_rebind(action: String, button: Button) -> void:
 	_rebinding_action = action
