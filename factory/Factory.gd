@@ -35,11 +35,12 @@ enum Tool { BELT, FORGE, BANK, CRAFTER, ASSEMBLER, SPLITTER, MERGER }
 const TOOL_MACHINE := { Tool.FORGE: &"t1_forge", Tool.BANK: &"storage", Tool.CRAFTER: &"t1_crafter", Tool.ASSEMBLER: &"t1_assembler" }
 
 var cells: Dictionary = {}  # Vector2i grid coordinate -> Cell
-var depo_coordinate := Vector2i(1, 6)
+var depo_coordinate := Vector2i(1, 10)
 # five 2x2 portals stacked down the right edge; locked ones show greyed until unlocked
 const PORTAL_COLUMN := GRID_COLUMNS - 2
-const PORTAL_TOP := 1
+const PORTAL_TOP := 2
 const PORTAL_SPACING := 4
+const PORTAL_LAYOUT := [&"yellow", &"red", &"blue", &"green", &"orange"]  # top to bottom; blue centered
 var build_ingots := STARTING_BUILD_INGOTS
 var selected_tool := Tool.BELT
 var placement_direction := 0   # facing used when you place something
@@ -119,8 +120,8 @@ func _setup_preview() -> void:
 
 # all five portals are always placed; the tech tree decides which are active (the rest show greyed)
 func _create_portals() -> void:
-	for index in range(Run.PORTAL_COLORS.size()):
-		var color: StringName = Run.PORTAL_COLORS[index]
+	for index in range(PORTAL_LAYOUT.size()):
+		var color: StringName = PORTAL_LAYOUT[index]
 		var origin := Vector2i(PORTAL_COLUMN, PORTAL_TOP + index * PORTAL_SPACING)
 		_create_machine(origin, StringName("portal_" + color), 0)
 
