@@ -1,6 +1,6 @@
 extends RefCounted
 ## The tech tree, mirroring docs/Tech Tree Worksheet.csv. Node ids match item/machine/tool ids.
-## Only real nodes live here -- plumbing (robot, depo, shuttle) is left out.
+## Only real nodes live here -- plumbing (robot, depo) is left out. Portals are nodes (they gate active state).
 
 static func register(database) -> void:
 	# materials
@@ -15,6 +15,12 @@ static func register(database) -> void:
 	database.add_tech_node(_n(&"t1_crafter", &"machine", "T1 Crafter", [&"scrap_ingot"], true))
 	database.add_tech_node(_n(&"t1_assembler", &"machine", "T1 Assembler", [&"t1_crafter"], true))
 	database.add_tech_node(_n(&"storage", &"machine", "Storage", [&"scrap_ingot"], true))
+	# portals (blue starts active; the other four unlock via cards -- parents get slotted in later)
+	database.add_tech_node(_n(&"portal_blue", &"portal", "Blue Portal", [], true))
+	database.add_tech_node(_n(&"portal_green", &"portal", "Green Portal", [], false))
+	database.add_tech_node(_n(&"portal_red", &"portal", "Red Portal", [], false))
+	database.add_tech_node(_n(&"portal_orange", &"portal", "Orange Portal", [], false))
+	database.add_tech_node(_n(&"portal_yellow", &"portal", "Yellow Portal", [], false))
 	# heads (each archetype branches off the assembler)
 	database.add_tech_node(_n(&"scrap_boxer_head", &"part", "Scrap Boxer Head", [&"t1_assembler"], true))
 	database.add_tech_node(_n(&"scrap_warrior_head", &"part", "Scrap Warrior Head", [&"t1_assembler"], false))

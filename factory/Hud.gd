@@ -120,8 +120,8 @@ func _build_launch_button() -> void:
 	launch_button.offset_right = -12
 	launch_button.offset_top = 8
 	launch_button.offset_bottom = 136
-	launch_button.text = "PRIME"
-	launch_button.add_theme_font_size_override("font_size", 24)
+	launch_button.text = "Start\nBattle"
+	launch_button.add_theme_font_size_override("font_size", 22)
 	launch_button.add_theme_stylebox_override("normal", _icon_style(Color(0.72, 0.16, 0.16)))
 	launch_button.add_theme_stylebox_override("hover", _icon_style(Color(0.82, 0.22, 0.22)))
 	launch_button.add_theme_stylebox_override("pressed", _icon_style(Color(0.90, 0.30, 0.30)))
@@ -167,7 +167,7 @@ func _build_shuttle_panel() -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	shuttle_panel.add_child(column)
-	var title := _make_label("Shuttle manifest")
+	var title := _make_label("Manifest")
 	title.add_theme_font_size_override("font_size", 14)
 	column.add_child(title)
 	var scroll := ScrollContainer.new()
@@ -188,7 +188,7 @@ func _rebuild_shuttle_list(groups: Array) -> void:
 	for child in shuttle_list.get_children():
 		child.free()
 	if groups.is_empty():
-		shuttle_list.add_child(_make_label("Shuttle empty"))
+		shuttle_list.add_child(_make_label("No robots loaded"))
 		return
 	for group in groups:
 		shuttle_list.add_child(_make_robot_card(group))
@@ -305,9 +305,9 @@ func _refresh_robots() -> void:
 func _refresh_launch() -> void:
 	var has_robots: bool = not factory.robot_groups().is_empty()
 	if factory.launch_armed and not has_robots:
-		factory.disarm_launch()       # the shuttle emptied out, so drop back to unprimed
+		factory.disarm_launch()       # the portals emptied out, so drop back to unprimed
 	launch_button.disabled = not has_robots
-	launch_button.text = "LAUNCH" if factory.launch_armed else "PRIME"
+	launch_button.text = "Confirm?" if factory.launch_armed else "Start\nBattle"
 	launch_button.modulate = Color(1.2, 1.0, 1.0) if factory.launch_armed else Color(1, 1, 1)
 
 func _refresh_speed() -> void:
@@ -324,7 +324,7 @@ func _refresh_buildables() -> void:
 
 func _on_launch_pressed() -> void:
 	if factory.launch_armed:
-		factory.confirm_launch()
+		factory.start_battle()
 	else:
 		factory.arm_launch()
 

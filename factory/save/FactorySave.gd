@@ -10,11 +10,14 @@ static func capture_state(factory: Factory) -> Dictionary:
 		"build_time_left": factory.build_time_left,
 		"speed": Sim.speed,
 		"unlocks": Unlocks.to_list(),
-		"shuttle_robots": [],
+		"portals": {},
 		"cells": [],
 	}
-	for loadout in Run.shuttle_robots:
-		data["shuttle_robots"].append(capture_loadout(loadout))
+	for color in Run.PORTAL_COLORS:
+		var manifest := []
+		for loadout in Run.manifest(color):
+			manifest.append(capture_loadout(loadout))
+		data["portals"][String(color)] = manifest
 	for coordinate in factory.cells:
 		var cell: Cell = factory.cells[coordinate]
 		if cell.kind == Factory.CellKind.MACHINE and cell.machine_origin != coordinate:
@@ -79,11 +82,13 @@ static func restore_state(factory: Factory, data: Dictionary) -> void:
 	factory.build_ingots = int(data.get("build_ingots", Factory.STARTING_BUILD_INGOTS))
 	factory.build_time_left = float(data.get("build_time_left", Factory.WAVE_BUILD_TIME))
 	Sim.speed = float(data.get("speed", 1.0))
-	Run.shuttle_robots.clear()
-	for arr in data.get("shuttle_robots", []):
-		var loadout = loadout_from_array(arr)
-		if loadout != null:
-			Run.shuttle_robots.append(loadout)
+	Run.clear_manifests()
+	var portals: Dictionary = data.get("portals", {})
+	for color in Run.PORTAL_COLORS:
+		for arr in portals.get(String(color), []):
+			var loadout = loadout_from_array(arr)
+			if loadout != null:
+				Run.load_robot(color, loadout)
 	restore_cells(factory, data)
 
 # rebuild only the placed cells -- used by the menu preview, which must not touch run/global state

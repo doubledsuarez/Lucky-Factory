@@ -1,7 +1,7 @@
 class_name MachineDef extends Resource
 ## A placeable machine: source, crafter, or storage.
 
-enum Kind { SOURCE, CRAFTER, STORAGE, ASSEMBLER, SHUTTLE }
+enum Kind { SOURCE, CRAFTER, STORAGE, ASSEMBLER, PORTAL }
 
 @export var id: StringName
 @export var display_name: String
@@ -15,3 +15,4 @@ enum Kind { SOURCE, CRAFTER, STORAGE, ASSEMBLER, SHUTTLE }
 @export var source_item: StringName     # source
 @export var storage_item: StringName    # storage
 @export var storage_capacity: int = 0   # storage
+@export var portal_color: StringName    # portal: which manifest it feeds (blue/green/red/orange/yellow)
