@@ -110,8 +110,9 @@ static func draw_machine_ui(factory: Factory, cell: Cell) -> void:
 			factory.draw_string(font, rect.position + Vector2(Factory.LABEL_INSET, rect.size.y - Factory.LABEL_INSET), str(factory.build_ingots), 0, -1, Factory.LABEL_FONT_SIZE, Color(1, 1, 1, 0.9))
 		MachineDef.Kind.SOURCE:
 			factory.draw_string(font, rect.position + Vector2(Factory.LABEL_INSET, rect.size.y - Factory.LABEL_INSET), str(machine.stored), 0, -1, Factory.LABEL_FONT_SIZE, Color(1, 1, 1, 0.9))
-		MachineDef.Kind.SHUTTLE:
-			factory.draw_string(font, rect.position + Vector2(Factory.LABEL_INSET, rect.size.y - Factory.LABEL_INSET), str(Run.shuttle_robots.size()), 0, -1, Factory.LABEL_FONT_SIZE, Color(1, 1, 1, 0.9))
+		MachineDef.Kind.PORTAL:
+			var portal_label := str(Run.manifest(machine.definition.portal_color).size()) if Unlocks.is_unlocked(machine.definition.id) else "locked"
+			factory.draw_string(font, rect.position + Vector2(Factory.LABEL_INSET, rect.size.y - Factory.LABEL_INSET), portal_label, 0, -1, Factory.LABEL_FONT_SIZE, Color(1, 1, 1, 0.9))
 
 static func machine_label(machine: Machine) -> String:
 	# a configured crafter shows what it's making; an empty one says so
@@ -122,6 +123,9 @@ static func machine_label(machine: Machine) -> String:
 static func draw_machine_body(factory: Factory, machine: Machine, alpha: float) -> void:
 	var rect := machine_rect(machine)
 	var fill := machine.definition.color
+	# a locked portal is greyed out, shown in place so the player sees what's coming
+	if machine.definition.kind == MachineDef.Kind.PORTAL and not Unlocks.is_unlocked(machine.definition.id):
+		fill = fill.darkened(0.6)
 	fill.a = alpha
 	factory.draw_rect(rect, fill)
 	factory.draw_rect(rect, Color(0, 0, 0, 0.5 * alpha), false, 1.0)

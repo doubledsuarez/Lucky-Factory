@@ -3,7 +3,11 @@ material,scrap,Scrap,Main,,TRUE
 material,scrap_ingot,Scrap Ingot,Main,t1_forge,TRUE
 output,robot,Robot,-,,TRUE
 machine,scrap_depo,Scrap Depo,-,,TRUE
-machine,shuttle,Shuttle,-,,TRUE
+portal,portal_blue,Blue Portal,Main,,TRUE
+portal,portal_green,Green Portal,Main,,FALSE
+portal,portal_red,Red Portal,Main,,FALSE
+portal,portal_orange,Orange Portal,Main,,FALSE
+portal,portal_yellow,Yellow Portal,Main,,FALSE
 tool,t1_belt,T1 Belt,Main,,TRUE
 tool,splitter,Splitter,Main,,FALSE
 tool,merger,Merger,Main,,FALSE

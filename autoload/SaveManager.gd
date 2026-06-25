@@ -4,7 +4,7 @@ extends Node
 const SLOT_COUNT := 3
 
 # bump this whenever ids change, then add the old->new pairs below
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
 
 # old machine/tool/node id -> current id, applied to saves below SAVE_VERSION on load
 const ID_MIGRATIONS := {

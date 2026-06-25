@@ -1,19 +1,36 @@
 extends Node
-## Carries the built army from the factory to the battle across the scene change.
+## Carries the built army from the factory to the battle. Robots load into one of five portal
+## manifests (by color); the battle reads these and clears them once rewards are tallied.
 
-# robots loaded on the shuttle during the factory phase
-var shuttle_robots: Array[RobotLoadout] = []
-# the army handed to the battle phase when the shuttle launches; the battle scene reads this
-var launched_robots: Array[RobotLoadout] = []
+const PORTAL_COLORS: Array[StringName] = [&"blue", &"green", &"red", &"orange", &"yellow"]
 
-func load_robot(loadout: RobotLoadout) -> void:
-	shuttle_robots.append(loadout)
+var portal_manifests: Dictionary = {}   # color -> Array of RobotLoadout
 
-func reset_shuttle() -> void:
-	shuttle_robots.clear()
+func _ready() -> void:
+	for color in PORTAL_COLORS:
+		portal_manifests[color] = []
 
-# snapshot the loaded robots as the battle army and clear the shuttle for the next round
-func launch_shuttle() -> Array[RobotLoadout]:
-	launched_robots = shuttle_robots.duplicate()
-	shuttle_robots.clear()
-	return launched_robots
+func load_robot(color: StringName, loadout: RobotLoadout) -> void:
+	if not portal_manifests.has(color):
+		portal_manifests[color] = []
+	portal_manifests[color].append(loadout)
+
+func manifest(color: StringName) -> Array:
+	return portal_manifests.get(color, [])
+
+# every loaded robot across all portals -- the combined army, for sent power and the result
+func all_robots() -> Array:
+	var combined: Array = []
+	for color in PORTAL_COLORS:
+		combined.append_array(portal_manifests.get(color, []))
+	return combined
+
+func total_robots() -> int:
+	var total := 0
+	for color in PORTAL_COLORS:
+		total += portal_manifests.get(color, []).size()
+	return total
+
+func clear_manifests() -> void:
+	for color in PORTAL_COLORS:
+		portal_manifests[color] = []

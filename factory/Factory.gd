@@ -36,7 +36,10 @@ const TOOL_MACHINE := { Tool.FORGE: &"t1_forge", Tool.BANK: &"storage", Tool.CRA
 
 var cells: Dictionary = {}  # Vector2i grid coordinate -> Cell
 var depo_coordinate := Vector2i(1, 6)
-var shuttle_coordinate := Vector2i(GRID_COLUMNS - 2, 6)
+# five 2x2 portals stacked down the right edge; locked ones show greyed until unlocked
+const PORTAL_COLUMN := GRID_COLUMNS - 2
+const PORTAL_TOP := 1
+const PORTAL_SPACING := 4
 var build_ingots := STARTING_BUILD_INGOTS
 var selected_tool := Tool.BELT
 var placement_direction := 0   # facing used when you place something
@@ -79,7 +82,7 @@ func _ready() -> void:
 		else:
 			Unlocks.seed_new_game()
 		_create_machine(depo_coordinate, &"scrap_depo", 0)
-		_create_machine(shuttle_coordinate, &"shuttle", 0)
+		_create_portals()
 		autosave()   # stamp the new slot with its name right away
 	else:
 		FactorySave.restore_state(self, snapshot)
@@ -104,7 +107,7 @@ func _setup_preview() -> void:
 		FactorySave.restore_cells(self, preview_snapshot)
 	else:
 		_create_machine(depo_coordinate, &"scrap_depo", 0)
-		_create_machine(shuttle_coordinate, &"shuttle", 0)
+		_create_portals()
 	for coordinate in cells:                          # keep the sources fed so the backdrop keeps flowing
 		var cell: Cell = cells[coordinate]
 		if cell.kind == CellKind.MACHINE and cell.machine_origin == coordinate and cell.machine.definition.kind == MachineDef.Kind.SOURCE:
@@ -113,6 +116,13 @@ func _setup_preview() -> void:
 	camera.position = preview_bounds.get_center()
 	camera.zoom = Vector2(DEFAULT_ZOOM, DEFAULT_ZOOM)
 	set_process_unhandled_input(false)
+
+# all five portals are always placed; the tech tree decides which are active (the rest show greyed)
+func _create_portals() -> void:
+	for index in range(Run.PORTAL_COLORS.size()):
+		var color: StringName = Run.PORTAL_COLORS[index]
+		var origin := Vector2i(PORTAL_COLUMN, PORTAL_TOP + index * PORTAL_SPACING)
+		_create_machine(origin, StringName("portal_" + color), 0)
 
 func _preview_content_bounds() -> Rect2:
 	if cells.is_empty():
@@ -188,9 +198,9 @@ func _deposit_into_machine(machine: Machine, item: Item) -> void:
 			build_ingots += 1
 		MachineDef.Kind.ASSEMBLER:
 			machine.inputs[item.definition.slot] = item.definition
-		MachineDef.Kind.SHUTTLE:
+		MachineDef.Kind.PORTAL:
 			if item.loadout != null and not preview_mode:
-				Run.load_robot(item.loadout)   # the preview must not add robots to the real run
+				Run.load_robot(machine.definition.portal_color, item.loadout)   # preview never touches the run
 
 # --- shared grid helpers (used by belts, routers, and machines) ---
 
@@ -259,8 +269,9 @@ func _machine_accepts(machine: Machine, item_definition: ItemDef) -> bool:
 			return item_definition.id == machine.definition.storage_item
 		MachineDef.Kind.ASSEMBLER:
 			return item_definition.slot != ItemDef.Slot.NONE and not machine.inputs.has(item_definition.slot)
-		MachineDef.Kind.SHUTTLE:
-			return item_definition.id == &"robot"
+		MachineDef.Kind.PORTAL:
+			# locked portals stay inactive; the preview backdrop ignores the lock so it keeps flowing
+			return item_definition.id == &"robot" and (preview_mode or Unlocks.is_unlocked(machine.definition.id))
 	return false
 
 # --- placement ---
@@ -274,8 +285,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.pressed:
 				var clicked := _world_to_cell(get_global_mouse_position())
 				var existing: Cell = cells.get(clicked)
-				if existing != null and existing.kind == CellKind.MACHINE and existing.machine.definition.kind == MachineDef.Kind.SHUTTLE:
-					hud.toggle_shuttle_panel()                  # click the shuttle to see its manifest
+				if existing != null and existing.kind == CellKind.MACHINE and existing.machine.definition.kind == MachineDef.Kind.PORTAL:
+					hud.toggle_shuttle_panel()                  # click a portal to see the manifest
 				elif existing != null and existing.kind == CellKind.MACHINE and not _is_prefab(existing.machine.definition.kind):
 					hud.open_machine_panel(existing.machine)    # click a placed machine to configure it
 				else:
@@ -387,7 +398,7 @@ func _remove_cell(coordinate: Vector2i) -> void:
 	if cell.kind == CellKind.MACHINE:
 		var machine := cell.machine
 		if _is_prefab(machine.definition.kind):
-			return  # the depo and shuttle stay put
+			return  # the depo and portals stay put
 		build_ingots += machine.definition.build_cost
 		_return_scrap_to_depo(int(machine.inputs.get(&"scrap", 0)))  # waiting intake scrap goes home
 		for machine_cell in _machine_world_cells(machine):
@@ -408,7 +419,7 @@ func _return_scrap_to_depo(count: int) -> void:
 		depo_cell.machine.stored += count
 
 func _is_prefab(machine_kind: int) -> bool:
-	return machine_kind == MachineDef.Kind.SOURCE or machine_kind == MachineDef.Kind.SHUTTLE
+	return machine_kind == MachineDef.Kind.SOURCE or machine_kind == MachineDef.Kind.PORTAL
 
 func _cost_of_cell(cell: Cell) -> int:
 	match cell.kind:
@@ -684,8 +695,8 @@ func machine_inspector(machine: Machine) -> Dictionary:
 	match def.kind:
 		MachineDef.Kind.SOURCE:
 			info.outputs.append({ "item": def.source_item, "have": machine.stored, "need": 0 })
-		MachineDef.Kind.SHUTTLE:
-			info.inputs.append({ "item": &"robot", "have": Run.shuttle_robots.size(), "need": 0 })
+		MachineDef.Kind.PORTAL:
+			info.inputs.append({ "item": &"robot", "have": Run.manifest(def.portal_color).size(), "need": 0 })
 		MachineDef.Kind.STORAGE:
 			info.inputs.append({ "item": def.storage_item, "have": 0, "need": 0 })
 			info.outputs.append({ "item": def.storage_item, "have": build_ingots, "need": 0 })
@@ -716,7 +727,7 @@ func robot_groups() -> Array:
 	var counts := {}
 	var sample := {}
 	var order := []
-	for loadout in Run.shuttle_robots:
+	for loadout in Run.all_robots():
 		var signature: String = loadout.signature()
 		if not counts.has(signature):
 			counts[signature] = 0
@@ -735,10 +746,11 @@ func time_text() -> String:
 func arm_launch() -> void:
 	launch_armed = true
 
-func confirm_launch() -> void:
+func start_battle() -> void:
 	launch_armed = false
-	var army := Run.launch_shuttle()  # hand the loaded robots to the battle phase
-	print("Shuttle launched with %d robots" % army.size())
+	# the manifests stay loaded through the battle; they're cleared once rewards are tallied
+	var army := Run.all_robots()
+	print("Battle started with %d robots across the portals" % army.size())
 	# placeholder until the battle exists: pretend we won with everyone surviving
 	var result := BattleResult.new()
 	result.won = true
@@ -747,6 +759,7 @@ func confirm_launch() -> void:
 	GameManager.on_battle_done(result)
 
 func _on_battle_resolved(won: bool, card_count: int) -> void:
+	Run.clear_manifests()   # rewards are tallied, so empty the portals for the next round
 	if won:
 		hud.show_upgrade_picker(card_count)
 	else:
