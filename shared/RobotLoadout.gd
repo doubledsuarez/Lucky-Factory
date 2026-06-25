@@ -29,6 +29,11 @@ func attack_range() -> float:
 func attack_speed() -> float:
 	return arms.attack_speed
 
-# a single combat-strength number, used to compare armies on the reward screen (tunable)
+# combat-strength estimate for comparing armies (reward screen, wave ranking). armor for
+# survivability, plus offense scaled by reach (free hits down the lane before contact) and
+# mobility (closing, kiting, dodging approach hits). constants are tuned against the battle sim.
 func power() -> float:
-	return float(total_armor()) + float(damage()) * maxf(attack_speed(), 0.1)
+	var dps := float(damage()) * attack_speed()
+	var reach := 1.0 + attack_range() * 0.1
+	var mobility := 0.4 + 0.4 * move_speed() + 0.2 * turn_rate()
+	return float(total_armor()) + dps * reach * mobility
