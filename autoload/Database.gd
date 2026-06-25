@@ -8,11 +8,13 @@ const CONTENT := [
 	preload("res://data/content/machines/endpoints.gd"),
 	preload("res://data/content/machines/fabricators.gd"),
 	preload("res://data/content/tech_nodes.gd"),
+	preload("res://data/content/waves.gd"),
 ]
 
 var items: Dictionary = {}              # id -> ItemDef
 var machines: Dictionary = {}           # id -> MachineDef
 var tech_nodes: Dictionary = {}         # id -> TechNode
+var waves: Dictionary = {}              # index -> WaveDef
 
 var _parts_by_slot: Dictionary = {}     # slot -> Array of ItemDef
 
@@ -33,6 +35,15 @@ func add_tech_node(node: TechNode) -> void:
 
 func tech_node(id: StringName) -> TechNode:
 	return tech_nodes.get(id)
+
+func add_wave(wave_def: WaveDef) -> void:
+	waves[wave_def.index] = wave_def
+
+func wave(index: int) -> WaveDef:
+	return waves.get(index)
+
+func wave_count() -> int:
+	return waves.size()
 
 func item(id: StringName) -> ItemDef:
 	return items.get(id)
