@@ -9,7 +9,9 @@ static func register(database) -> void:
 	database.add_item(ItemBuilders.head(&"scrap_hunter_head", "Scrap Hunter Head", 6))
 	database.add_item(ItemBuilders.head(&"scrap_warrior_head", "Scrap Warrior Head", 12))
 	# torsos: armor, turn rate, speed
-	database.add_item(ItemBuilders.torso(&"scrap_boxer_torso", "Scrap Boxer Torso", 28, 0.75, 0.9))
+	# the boxer's shield soaks ranged fire -- it's how brawlers walk through rifles to reach the line
+	# (12 vs a scrap rifle's 13 leaves chip damage of 1; tougher energy weapons will punch through)
+	database.add_item(ItemBuilders.torso(&"scrap_boxer_torso", "Scrap Boxer Torso", 28, 0.75, 0.9, 12))
 	database.add_item(ItemBuilders.torso(&"scrap_hunter_torso", "Scrap Hunter Torso", 6, 1.25, 1.1))
 	database.add_item(ItemBuilders.torso(&"scrap_warrior_torso", "Scrap Warrior Torso", 12, 1.0, 1.0))
 	# legs: armor, speed
