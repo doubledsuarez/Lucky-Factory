@@ -21,6 +21,9 @@ var enemy_tint := Color(0.85, 0.25, 0.25)
 # ranged shots fired on the latest step, for the renderer's tracers. each: { from, to, team } in
 # cell space (Vector2(col, row)). cleared at the top of every step.
 var recent_shots: Array = []
+# shielded units that soaked a ranged hit on the latest step, for the renderer's block flash. each is
+# a Vector2(col, row) in cell space. cleared at the top of every step.
+var recent_blocks: Array = []
 
 # placements: Array of { color, tint, row, manifest:Array[RobotLoadout] } for the player's portals.
 # enemy_loadouts: the wave, expanded; spread round-robin across the rows as enemy portals.
@@ -43,25 +46,38 @@ func setup(placements: Array, enemy_loadouts: Array) -> void:
 		portals.append(portal)
 	_build_enemy_portals(enemy_loadouts)
 
+# the wave becomes up to ROWS enemy portals, mirroring the player's five. each portal's army is a
+# fixed, contiguous slice of the wave (deterministic composition); only which row it lands on is
+# randomized, so the same wave fans across the grid differently every battle.
 func _build_enemy_portals(enemy_loadouts: Array) -> void:
 	if enemy_loadouts.is_empty():
 		return
-	var by_row: Array = []
-	for _r in range(ROWS):
-		by_row.append([])
-	for i in range(enemy_loadouts.size()):
-		by_row[i % ROWS].append(enemy_loadouts[i])
+	var manifests := _split_into_manifests(enemy_loadouts, mini(ROWS, enemy_loadouts.size()))
+	var rows: Array = []
 	for r in range(ROWS):
-		if by_row[r].is_empty():
-			continue
+		rows.append(r)
+	rows.shuffle()
+	for i in range(manifests.size()):
 		var portal := BattlePortal.new()
 		portal.team = BattleUnit.ENEMY
 		portal.color = &"enemy"
 		portal.tint = enemy_tint
-		portal.row = r
+		portal.row = rows[i]
 		portal.col = ENEMY_COL
-		portal.queue = by_row[r]
+		portal.queue = manifests[i]
 		portals.append(portal)
+
+# split a list into `count` near-equal contiguous chunks. deterministic: same input -> same chunks,
+# and every chunk gets at least one (callers pass count <= size).
+func _split_into_manifests(loadouts: Array, count: int) -> Array:
+	var manifests: Array = []
+	var total := loadouts.size()
+	var start := 0
+	for i in range(count):
+		var size := (total - start) / (count - i)   # integer division spreads the remainder forward
+		manifests.append(loadouts.slice(start, start + size))
+		start += size
+	return manifests
 
 func is_over() -> bool:
 	return outcome != 0
@@ -73,6 +89,7 @@ func step() -> void:
 	if outcome != 0:
 		return
 	recent_shots.clear()
+	recent_blocks.clear()
 	if half_beat % 2 == 0:
 		_move_phase()
 	else:
@@ -104,16 +121,23 @@ func _fire_phase() -> void:
 		var target = _nearest_enemy_in_row(unit, unit.row)
 		if target == null or not _in_range(unit, target):
 			continue   # nothing to shoot; stay primed so we fire the instant something steps up
-		shots.append([target, unit.damage, unit.ranged])
+		# a ranged mech cornered at point-blank punches instead of shooting -- a melee hit that batters
+		# the shield like any other, so a boxer that closes the gap can't keep an intact shield up forever
+		var from_ranged: bool = unit.ranged and absi(target.col - unit.col) > 1
+		shots.append([target, unit.damage, from_ranged])
 		unit.fire_cd = unit.fire_period
-		if unit.ranged:   # only rifles get a visible tracer
+		if from_ranged:   # only an actual shot gets a visible tracer; a punch doesn't
 			recent_shots.append({
 				"from": Vector2(unit.col, unit.row),
 				"to": Vector2(target.col, target.row),
 				"team": unit.team,
 			})
 	for shot in shots:
-		shot[0].hurt(shot[1], shot[2])
+		var target = shot[0]
+		# a ranged hit stopped by an intact shield (portals have no shield) -> the block flashes
+		if shot[2] and target is BattleUnit and target.shield_hp > 0:
+			recent_blocks.append(Vector2(target.col, target.row))
+		target.hurt(shot[1], shot[2])
 
 func _spawn_phase() -> void:
 	for portal in portals:
@@ -124,9 +148,15 @@ func _spawn_phase() -> void:
 			continue
 		if not portal.has_pending():
 			continue
-		if _unit_at(portal.row, portal.col) != null:
-			continue   # the mouth is blocked; hold the line until it clears
-		var unit := BattleUnit.spawn(portal.next_mech(), portal.team, portal.row, portal.col)
+		# mechs emerge one cell in front of the portal, never on it -- so the portal sits alone behind
+		# its lane and attackers must chew through the mechs (nearest-target) before they can reach it
+		var dir := 1 if portal.team == BattleUnit.PLAYER else -1   # players march +x, enemies -x
+		var spawn_col: int = portal.col + dir
+		if spawn_col < 0 or spawn_col >= COLS:
+			continue   # safety; portals sit at the edges so this won't actually hit
+		if _unit_at(portal.row, spawn_col) != null:
+			continue   # the cell in front is blocked; hold the line until it clears
+		var unit := BattleUnit.spawn(portal.next_mech(), portal.team, portal.row, spawn_col)
 		units.append(unit)
 		portal.spawn_cd = BattlePortal.SPAWN_PERIOD
 
@@ -142,16 +172,17 @@ func _unit_move(unit: BattleUnit) -> void:
 	if target != null:
 		_advance(unit)
 		return
-	# our row is clear: swarm toward the nearest row that still has enemies. the vertical hop ignores
-	# friendly occupancy on purpose -- if it blocked, a wall of mechs stacked at the last column would
-	# mutually block each other and the whole line would deadlock. they spread back out as they queue
-	# along the new row (horizontal moves still respect occupancy).
+	# our row is clear: swarm toward the nearest row that still has enemies. the vertical hop respects
+	# occupancy so two mechs can never land on the same cell; if the target cell is taken we just hold
+	# this beat and retry next one (cells free up as the line keeps moving, so it can't deadlock).
 	var swarm_row := _nearest_enemy_row(unit)
 	if swarm_row == -1:
 		return
 	if swarm_row != unit.row:
-		unit.row += signi(swarm_row - unit.row)
-		unit.move_cd = unit.move_period
+		var step := signi(swarm_row - unit.row)
+		if _cell_free(unit.row + step, unit.col, unit):
+			unit.row += step
+			unit.move_cd = unit.move_period
 		return
 	_advance(unit)
 

@@ -10,6 +10,7 @@ enum State { DEPLOY, FIGHTING, RESOLVED }
 const BPM := 112.0                       # baked from assets/Lucky-Factory.mp3 (a live take; close enough)
 const HALF_BEAT := 60.0 / BPM / 2.0      # seconds per half-beat: move on the beat, fire on the off-beat
 const PROJECTILE_LIFE := 0.16            # seconds a rifle tracer takes to cross from shooter to target
+const SHIELD_FLASH_LIFE := 0.14          # seconds a boxer's shield-block flash stays lit
 
 var wave_index := 1
 var state: State = State.DEPLOY
@@ -25,6 +26,7 @@ var _accum := 0.0
 var _result: BattleResult
 var _music: AudioStreamPlayer
 var projectiles: Array = []   # live rifle tracers: { from, to, team, age } (cell space)
+var flashes: Array = []       # live shield-block flashes: { at, age } (at = cell-space Vector2)
 
 @onready var _hint: Label = $Hint
 @onready var _hotbar: HBoxContainer = $Bottom/Hotbar
@@ -213,8 +215,14 @@ func _process(delta: float) -> void:
 		sim.step()
 		for shot in sim.recent_shots:
 			projectiles.append({ "from": shot.from, "to": shot.to, "team": shot.team, "age": 0.0 })
+		# the block is computed on the beat, but the tracer takes PROJECTILE_LIFE to visually cross --
+		# so hold the flash until the bolt lands by starting its age in the negative
+		for block in sim.recent_blocks:
+			flashes.append({ "at": block, "age": -PROJECTILE_LIFE })
 		guard += 1
-	_age_projectiles(delta * maxf(Sim.speed, 0.05))
+	var aged := delta * maxf(Sim.speed, 0.05)
+	_age_projectiles(aged)
+	_age_flashes(aged)
 	queue_redraw()
 	if sim.is_over():
 		_finish()
@@ -225,9 +233,16 @@ func _age_projectiles(amount: float) -> void:
 		projectile.age += amount
 	projectiles = projectiles.filter(func(p): return p.age < PROJECTILE_LIFE)
 
+# shield-block flashes age on the same clock, so a block reads as one quick blip even when sped up
+func _age_flashes(amount: float) -> void:
+	for flash in flashes:
+		flash.age += amount
+	flashes = flashes.filter(func(f): return f.age < SHIELD_FLASH_LIFE)
+
 func _finish() -> void:
 	state = State.RESOLVED
 	projectiles.clear()
+	flashes.clear()
 	if _music != null:
 		_music.stop()
 	_result = BattleResult.new()

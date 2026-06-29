@@ -23,7 +23,8 @@ var forward: int             # +1 for the player (marching right), -1 for the en
 var hp: int
 var max_hp: int
 var damage: int
-var shield: int
+var shield_max: int          # the shield's durability when fresh (0 for non-shield mechs)
+var shield_hp: int           # remaining shield; blocks ranged fire while > 0, battered down by melee
 var ranged: bool             # rifles; the only thing a shield blocks
 var range_cells: int
 
@@ -51,7 +52,8 @@ static func spawn(build: RobotLoadout, unit_team: int, unit_row: int, unit_col: 
 	unit.max_hp = maxi(1, build.total_armor())
 	unit.hp = unit.max_hp
 	unit.damage = maxi(1, build.damage())
-	unit.shield = build.shield_value()
+	unit.shield_max = build.shield_value()
+	unit.shield_hp = unit.shield_max
 	unit.ranged = build.is_ranged()
 	unit.range_cells = _range_cells(build.attack_range())
 	unit.move_period = maxi(1, int(round(BASE_MOVE_BEATS / maxf(build.move_speed(), 0.1))))
@@ -68,11 +70,16 @@ static func _range_cells(reach: float) -> int:
 		return 2
 	return FULL_LANE
 
-# take a hit. the shield soaks a flat amount from ranged fire only; melee punches straight through
+# take a hit. while the shield holds it stops ranged fire outright -- arrows can't get through it. melee
+# always lands on the body in full AND batters the shield down; once the shield is gone the mech is
+# exposed to ranged fire for the rest of the fight (it doesn't come back).
 func hurt(amount: int, from_ranged: bool) -> void:
-	var taken := amount
-	if from_ranged and shield > 0:
-		taken = maxi(1, amount - shield)
-	hp -= taken
+	if from_ranged:
+		if shield_hp > 0:
+			return   # arrow stopped cold by the shield; fire doesn't wear the shield down, only melee does
+		hp -= amount
+	else:
+		hp -= amount
+		shield_hp = maxi(0, shield_hp - amount)
 	if hp <= 0:
 		alive = false

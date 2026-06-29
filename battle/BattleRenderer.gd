@@ -39,6 +39,7 @@ static func draw(battle) -> void:
 	else:
 		_draw_sim(battle, field, cw, ch, font)
 		_draw_projectiles(battle, field, cw, ch)
+		_draw_flashes(battle, field, cw, ch)
 
 static func _cell_center(field: Rect2, cw: float, ch: float, row: int, col: int) -> Vector2:
 	return field.position + Vector2((col + 0.5) * cw, (row + 0.5) * ch)
@@ -84,6 +85,17 @@ static func _draw_projectiles(battle, field: Rect2, cw: float, ch: float) -> voi
 		battle.draw_line(tail, head, Color(tint, 0.45), 2.0)
 		battle.draw_circle(head, minf(cw, ch) * 0.09, tint.lightened(0.4))
 
+# shield-block flash: a yellow square outline lighting up on a boxer the instant it soaks a rifle
+# shot, fading out over its short life -- one quick blip per blocked shot
+static func _draw_flashes(battle, field: Rect2, cw: float, ch: float) -> void:
+	for flash in battle.flashes:
+		if flash.age < 0.0:
+			continue   # still waiting for the tracer to land
+		var alpha: float = clampf(1.0 - flash.age / battle.SHIELD_FLASH_LIFE, 0.0, 1.0)
+		var center := _cell_center(field, cw, ch, int(flash.at.y), int(flash.at.x))
+		var s := Vector2(minf(cw, ch), minf(cw, ch)) * 0.62
+		battle.draw_rect(Rect2(center - s * 0.5, s), Color(1.0, 0.9, 0.3, alpha), false, 3.0)
+
 static func _draw_portal_slab(battle, center: Vector2, cw: float, ch: float, tint: Color, label: String, font: Font) -> void:
 	var size := Vector2(cw * 0.8, ch * 0.8)
 	var rect := Rect2(center - size * 0.5, size)
@@ -103,11 +115,12 @@ static func _draw_unit(battle, center: Vector2, cw: float, ch: float, unit, tint
 				center + Vector2(radius, radius),
 				center + Vector2(-radius, radius)])
 			battle.draw_colored_polygon(pts, tint)
-		_:  # brawler -- square, with a shield tick if it carries one
+		_:  # brawler -- square, ringed white while its shield holds; the ring fades as melee wears it
 			var s := Vector2(radius, radius) * 1.6
 			battle.draw_rect(Rect2(center - s * 0.5, s), tint)
-			if unit.shield > 0:
-				battle.draw_rect(Rect2(center - s * 0.5, s), Color.WHITE, false, 2.0)
+			if unit.shield_hp > 0:
+				var frac: float = float(unit.shield_hp) / float(maxi(1, unit.shield_max))
+				battle.draw_rect(Rect2(center - s * 0.5, s), Color(1, 1, 1, 0.35 + 0.65 * frac), false, 2.0)
 
 static func _draw_hp_bar(battle, center: Vector2, width: float, y_off: float, frac: float, tint: Color) -> void:
 	frac = clampf(frac, 0.0, 1.0)

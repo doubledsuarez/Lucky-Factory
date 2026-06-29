@@ -33,7 +33,8 @@ func attack_range() -> float:
 func attack_speed() -> float:
 	return arms.attack_speed
 
-# flat damage soaked from each ranged hit (the boxer's shield); melee ignores it
+# the shield's durability (the boxer's): it blocks ranged fire outright while it holds, and melee
+# batters it down -- see BattleUnit.hurt(). 0 means no shield.
 func shield_value() -> int:
 	return head.shield + torso.shield + legs.shield + arms.shield
 
