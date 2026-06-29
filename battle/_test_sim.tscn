@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b8t3tsim0test"]
+
+[ext_resource type="Script" path="res://battle/_test_sim.gd" id="1"]
+
+[node name="TestSim" type="Node"]
+script = ExtResource("1")

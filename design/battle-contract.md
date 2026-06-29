@@ -63,6 +63,28 @@ Use `Run.all_robots()` for `sent` (not a single manifest) so the combined power 
 
 ## Integration hook
 
-`Factory.start_battle()` currently stubs an instant win so the loop is testable without a battle.
-Replace that with the transition into the battle scene; the scene reads the manifests + waves above,
-runs the fight, and calls `GameManager.on_battle_done()` at the end. Everything else stays as written.
+Implemented. `Factory.start_battle()` opens `battle/Battle.tscn` as a full-screen overlay on the HUD
+layer and pauses the factory; the overlay reads the manifests + current wave, runs the fight, and emits
+`finished(result)`, at which point the factory frees it and calls `GameManager.on_battle_done(result)`.
+A win advances `current_wave` and autosaves. The contract above is untouched.
+
+## Battle phase (`battle/`)
+
+A tick-based lane auto-battler timed to the music (à la UFO 50's *Attactics*). It speaks the factory's
+grid: a row × column board drawn at `Factory.CELL_SIZE`.
+
+- **Beat clock** — every step is a half-beat (tempo baked from `assets/Lucky-Factory.mp3`, ≈112 BPM).
+  Units move on the beat and fire on the off-beat; `Sim.speed` scales the tempo.
+- **Deploy** — a hotbar of the five portal colors; place each onto a row, then Fight. Each portal emits
+  its manifest one mech at a time onto its row.
+- **Classes / counters** — mechs march straight down their row, then swarm cleared rows. The three
+  classes form a rock-paper-scissors triangle: **Brawler ▸ Rifleman ▸ Spearman ▸ Brawler**. The
+  brawler's `shield` (an `ItemDef` stat, on the boxer torso) soaks ranged fire so it walks through
+  rifles; spears are melee and punch through it.
+- **End** — a wave is won when every enemy portal and unit is destroyed, lost when the player's mechs
+  are gone with nothing left to spawn.
+
+Files: `BattleSim` (headless, deterministic tick logic), `BattleUnit` / `BattlePortal` (runtime state),
+`BattleRenderer` (placeholder drawing), `Battle` (overlay: deploy UI, beat clock, result). Dev tools:
+`battle/Sandbox.tscn` drops you into a battle with a ready-made army; `battle/_test_sim.tscn` is a
+headless check that the RPS triangle holds.

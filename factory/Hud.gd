@@ -351,9 +351,8 @@ func _on_build_pressed(tool: int) -> void:
 
 func show_upgrade_picker(card_count: int) -> void:
 	var pool: Array = Unlocks.available()
-	if pool.is_empty():
-		return   # nothing left to offer
 	pool.shuffle()
+	var maxed := pool.is_empty()   # nothing left to offer -> show a "fully upgraded" card instead
 	var count: int = mini(card_count, pool.size())
 	var overlay := Control.new()
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -371,21 +370,31 @@ func show_upgrade_picker(card_count: int) -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 10)
 	panel.add_child(column)
-	var title := _make_label("Choose an upgrade")
+	var title := _make_label("Tech Tree fully upgraded!" if maxed else "Choose an upgrade")
 	title.add_theme_font_size_override("font_size", 20)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
-	var cards := HBoxContainer.new()
-	cards.add_theme_constant_override("separation", 8)
-	column.add_child(cards)
-	for index in range(count):
-		var id: StringName = pool[index]
-		var node: TechNode = Database.tech_node(id)
-		var card := Button.new()
-		card.custom_minimum_size = Vector2(150, 84)
-		card.text = "%s\n(%s)" % [node.display_name, node.category]
-		card.pressed.connect(_on_upgrade_chosen.bind(id, overlay))
-		cards.add_child(card)
+	if maxed:
+		var note := _make_label("No perks left.")
+		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		column.add_child(note)
+		var done := Button.new()
+		done.text = "Continue"
+		done.pressed.connect(_on_picker_dismissed.bind(overlay))
+		column.add_child(done)
+		done.grab_focus()
+	else:
+		var cards := HBoxContainer.new()
+		cards.add_theme_constant_override("separation", 8)
+		column.add_child(cards)
+		for index in range(count):
+			var id: StringName = pool[index]
+			var node: TechNode = Database.tech_node(id)
+			var card := Button.new()
+			card.custom_minimum_size = Vector2(150, 84)
+			card.text = "%s\n(%s)" % [node.display_name, node.category]
+			card.pressed.connect(_on_upgrade_chosen.bind(id, overlay))
+			cards.add_child(card)
 	add_child(overlay)
 	get_tree().paused = true
 
@@ -393,6 +402,10 @@ func _on_upgrade_chosen(id: StringName, overlay: Control) -> void:
 	Unlocks.unlock(id)
 	factory.apply_unlock_effect(id)
 	refresh_build_bar()
+	overlay.queue_free()
+	get_tree().paused = false
+
+func _on_picker_dismissed(overlay: Control) -> void:
 	overlay.queue_free()
 	get_tree().paused = false
 

@@ -22,11 +22,12 @@ static func head(id: StringName, display_name: String, armor: int) -> ItemDef:
 	definition.armor = armor
 	return definition
 
-static func torso(id: StringName, display_name: String, armor: int, turn_rate: float, speed: float) -> ItemDef:
+static func torso(id: StringName, display_name: String, armor: int, turn_rate: float, speed: float, shield: int = 0) -> ItemDef:
 	var definition := part(id, display_name, ItemDef.Slot.TORSO, ItemDef.Shape.HEXAGON)
 	definition.armor = armor
 	definition.turn_rate = turn_rate
 	definition.speed = speed
+	definition.shield = shield
 	return definition
 
 static func legs(id: StringName, display_name: String, armor: int, speed: float) -> ItemDef:

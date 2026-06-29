@@ -66,6 +66,7 @@ var launch_armed := false
 var current_wave := 1
 var played_seconds := 0.0
 var pause_menu: PauseMenu = null
+var battle_overlay: Battle = null   # the fight runs as a full-screen overlay; null when not fighting
 var preview_mode := false        # menu backdrop: render a save, no sim, no saving, no input
 var preview_snapshot := {}
 var preview_bounds := Rect2()    # world-space extent of the placed content, for the menu camera
@@ -749,19 +750,28 @@ func arm_launch() -> void:
 
 func start_battle() -> void:
 	launch_armed = false
+	if battle_overlay != null:
+		return   # already fighting
 	# the manifests stay loaded through the battle; they're cleared once rewards are tallied
-	var army := Run.all_robots()
-	print("Battle started with %d robots across the portals" % army.size())
-	# placeholder until the battle exists: pretend we won with everyone surviving
-	var result := BattleResult.new()
-	result.won = true
-	result.sent = army
-	result.survivors = army.duplicate()
+	battle_overlay = preload("res://battle/Battle.tscn").instantiate()
+	battle_overlay.setup(current_wave)
+	battle_overlay.finished.connect(_on_battle_finished)
+	$HudLayer.add_child(battle_overlay)
+	get_tree().paused = true   # freeze the factory; the overlay runs on PROCESS_MODE_ALWAYS
+
+func _on_battle_finished(result: BattleResult) -> void:
+	if battle_overlay != null:
+		battle_overlay.queue_free()
+		battle_overlay = null
+	# unpause first; the reward picker re-pauses itself, and loss/no-picker leaves us running
+	get_tree().paused = false
 	GameManager.on_battle_done(result)
 
 func _on_battle_resolved(won: bool, card_count: int) -> void:
 	Run.clear_manifests()   # rewards are tallied, so empty the portals for the next round
 	if won:
+		current_wave = mini(current_wave + 1, Database.wave_count())   # advance to the next wave
+		autosave()
 		hud.show_upgrade_picker(card_count)
 	else:
 		print("Defeated")   # defeat screen + checkpoint reload come with the round loop

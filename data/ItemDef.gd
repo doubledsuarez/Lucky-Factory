@@ -17,6 +17,7 @@ enum Shape { SQUARE, TRAPEZOID, TRIANGLE, DIAMOND, HEXAGON, CIRCLE }
 @export var armor: int = 0
 @export var speed: float = 0.0               # legs and torso
 @export var turn_rate: float = 0.0           # torso
+@export var shield: int = 0                  # torso; shield durability -- blocks ranged till melee breaks it
 @export var damage: int = 0                  # arms
 @export var attack_range: float = 0.0        # arms
 @export var attack_speed: float = 0.0        # arms
